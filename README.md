@@ -3,7 +3,7 @@
 A memória de longo prazo da Capri, a companheira de desktop. Tudo que ela aprende vira uma bolinha num grafo, ligada às
 outras: o que você gosta, as pessoas da sua vida, as conversas, o que vocês leram juntos, as promessas dela.
 
-**Site:** https://sakueaffsakura-sys.github.io/cerebro-da-capri/
+**Site:** https://sakueaffsakura-sys.github.io/capri-memory-garden/
 
 ## Como usar
 
