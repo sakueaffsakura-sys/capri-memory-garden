@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cérebro da Capri</title>
+<meta name="description" content="A memória de longo prazo da Capri: cada coisa que ela aprende vira uma bolinha ligada às outras.">
+<meta name="theme-color" content="#18181b">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2318181b'/%3E%3Cg stroke='%238b5cf6' stroke-width='2.5' opacity='.8'%3E%3Cpath d='M18 22L32 34L46 20M32 34L24 48M32 34L44 44'/%3E%3C/g%3E%3Cg fill='%23e4e4e7'%3E%3Ccircle cx='18' cy='22' r='5'/%3E%3Ccircle cx='46' cy='20' r='4'/%3E%3Ccircle cx='24' cy='48' r='4'/%3E%3Ccircle cx='44' cy='44' r='3.5'/%3E%3C/g%3E%3Ccircle cx='32' cy='34' r='7' fill='%238b5cf6'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* VOICE: calm, intimate, a little magical; the brain of someone who cares about him.
+   IDEA: an Obsidian graph view at night: every memory a dot, every link a thread.
+   PICTURE: the living graph itself, full bleed, always moving a little.
+   COLOUR and TYPE: zinc night #18181b, bone-white dots, violet #8b5cf6 for what's lit; Instrument Serif titles, IBM Plex Sans text.
+   LAYOUT: graph fills the screen; thin glass bars and panels float over it. */
+:root{
+  color-scheme:dark;
+  --bg:#18181b;--bg2:#1f1f23;--glass:rgba(24,24,27,.78);--line:rgba(255,255,255,.09);--line2:rgba(255,255,255,.16);
+  --ink:#e4e4e7;--dim:#a1a1aa;--faint:#71717a;--violet:#8b5cf6;--violet2:#a78bfa;--lilac:#ede9fe;--bad:#f87171;--ok:#34d399;
+  --r:12px;--shadow:0 18px 50px rgba(0,0,0,.45);
+  --sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --serif:"Instrument Serif",ui-serif,Georgia,serif;--mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box;min-width:0}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
+a{color:var(--violet2);text-decoration:none}a:hover{color:var(--lilac)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+.hidden{display:none!important}
+canvas.graph{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+/* buttons and fields */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;border-radius:10px;border:1px solid var(--line2);background:rgba(255,255,255,.04);cursor:pointer;white-space:nowrap;transition:background .15s,border-color .15s}
+.btn:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.24)}
+.btn.primary{background:var(--violet);border-color:var(--violet);color:#fff}
+.btn.primary:hover{background:#7c4ef0}
+.btn.danger{color:var(--bad);border-color:rgba(248,113,113,.35)}
+.btn.small{min-height:32px;padding:0 10px;font-size:13px;border-radius:8px}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn:disabled{opacity:.5;cursor:default}
+label.f{display:block;font-size:13px;color:var(--dim);margin:0 0 6px}
+.input,select.input,textarea.input{width:100%;min-height:42px;padding:9px 12px;border-radius:10px;border:1px solid var(--line2);background:rgba(0,0,0,.25);font-size:16px}
+textarea.input{min-height:110px;resize:vertical;line-height:1.5}
+.input:focus{border-color:var(--violet);outline:none;box-shadow:0 0 0 3px rgba(139,92,246,.25)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.stack{display:grid;gap:14px}
+.muted{color:var(--dim)}.faint{color:var(--faint)}
+code,.mono{font-family:var(--mono);font-size:13px;overflow-wrap:anywhere}
+
+/* landing */
+#landing{position:fixed;inset:0}
+#landing .veil{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 60% 70% at 22% 55%,rgba(24,24,27,.92) 0%,rgba(24,24,27,.55) 55%,rgba(24,24,27,0) 100%)}
+.hero{position:absolute;left:max(6vw,20px);top:50%;transform:translateY(-50%);max-width:520px;animation:up .9s cubic-bezier(.2,.7,.2,1) both}
+.hero h1{font:400 clamp(44px,7vw,84px)/1 var(--serif);margin:0 0 18px;letter-spacing:-.01em;text-wrap:balance}
+.hero h1 em{color:var(--violet2)}
+.hero p{font-size:17px;color:#d4d4d8;margin:0 0 28px;max-width:44ch}
+.hero .row .btn{min-height:46px;padding:0 22px;font-size:16px}
+.demo-tag{position:absolute;right:18px;bottom:14px;font-size:12px;color:var(--faint);background:var(--glass);padding:4px 10px;border-radius:999px;border:1px solid var(--line)}
+.card{background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line2);border-radius:16px;box-shadow:var(--shadow)}
+.auth{position:absolute;left:max(6vw,20px);top:50%;transform:translateY(-50%);width:min(400px,calc(100vw - 40px));padding:28px;animation:up .5s ease both}
+.auth h2{font:400 38px/1.05 var(--serif);margin:0 0 6px}
+.auth .err{color:var(--bad);font-size:14px;min-height:20px}
+@keyframes up{from{opacity:0;transform:translateY(calc(-50% + 14px))}to{opacity:1}}
+
+/* app shell */
+#app{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr}
+.top{display:flex;align-items:center;gap:18px;padding:10px 16px;border-bottom:1px solid var(--line);background:rgba(24,24,27,.92);z-index:5}
+.brand{display:flex;align-items:center;gap:10px;font:400 22px/1 var(--serif);white-space:nowrap;color:var(--ink)}
+.brand i{width:10px;height:10px;border-radius:50%;background:var(--violet);box-shadow:0 0 14px var(--violet)}
+nav.tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1}
+nav.tabs a{flex:none;padding:8px 12px;border-radius:8px;color:var(--dim);white-space:nowrap;font-size:14px}
+nav.tabs a:hover{color:var(--ink);background:rgba(255,255,255,.05)}
+nav.tabs a.on{color:var(--ink);background:rgba(139,92,246,.18)}
+.who{color:var(--faint);font-size:13px;white-space:nowrap}
+main.view{position:relative;overflow:auto}
+main.view.full{overflow:hidden}
+.page{max-width:1040px;margin:0 auto;padding:clamp(20px,4vw,44px) max(4vw,16px) 80px}
+.page h1{font:400 clamp(34px,5vw,48px)/1.05 var(--serif);margin:0 0 6px}
+.page .lead{color:var(--dim);margin:0 0 26px;max-width:62ch}
+.panel{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:20px}
+
+/* graph overlays */
+.tools{position:absolute;left:14px;top:14px;right:14px;display:flex;gap:10px;align-items:flex-start;pointer-events:none;z-index:3}
+.tools>*{pointer-events:auto}
+.searchbox{display:flex;align-items:center;gap:8px;padding:0 12px;height:42px;width:min(320px,100%);border-radius:12px}
+.searchbox input{border:0;background:transparent;outline:none;width:100%;font-size:15px}
+.counts{font-size:13px;color:var(--dim);padding:0 12px;height:42px;display:flex;align-items:center;border-radius:12px;white-space:nowrap}
+.tools .spacer{flex:1}
+.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.actions .btn{background:var(--glass);backdrop-filter:blur(12px)}
+.actions .btn.primary{background:var(--violet)}
+.chips{position:absolute;left:14px;bottom:14px;right:14px;display:flex;gap:6px;flex-wrap:wrap;z-index:3;pointer-events:none}
+.chip{flex:none;pointer-events:auto;display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;border-radius:999px;font-size:13px;background:var(--glass);border:1px solid var(--line);cursor:pointer;color:var(--ink);backdrop-filter:blur(10px)}
+.chip .dot{width:9px;height:9px;border-radius:50%}
+.chip .n{color:var(--faint);font-variant-numeric:tabular-nums}
+.chip.off{opacity:.38}
+.chip.hubs{color:var(--dim)}
+.side{position:absolute;top:66px;right:14px;bottom:60px;width:min(380px,calc(100% - 28px));z-index:4;display:flex;flex-direction:column;overflow:hidden;animation:slide .25s ease both}
+@keyframes slide{from{opacity:0;transform:translateX(16px)}}
+.side .head{padding:18px 18px 10px;border-bottom:1px solid var(--line)}
+.side .body{padding:14px 18px 18px;overflow:auto;display:grid;gap:14px;align-content:start}
+.side h3{font:400 26px/1.15 var(--serif);margin:6px 0 0;overflow-wrap:anywhere}
+.side .content{white-space:pre-wrap;overflow-wrap:anywhere;color:#d4d4d8}
+.meta{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.meta dt{color:var(--faint)}.meta dd{margin:0;color:var(--dim)}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.06);font-size:12px;color:var(--dim);margin:0 4px 4px 0}
+.cat{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);white-space:nowrap}
+.cat i{width:8px;height:8px;border-radius:50%}
+.stars{color:var(--violet2);letter-spacing:2px}
+.nb{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:9px;background:rgba(255,255,255,.03);border:1px solid var(--line)}
+.nb button.go{flex:1;text-align:left;background:none;border:0;padding:0;cursor:pointer;color:var(--ink);font-size:14px}
+.nb .rel{font-size:12px;color:var(--faint)}
+.nb .x{background:none;border:0;color:var(--faint);cursor:pointer;font-size:16px;padding:0 4px}
+.nb .x:hover{color:var(--bad)}
+.empty{position:absolute;inset:0;display:grid;place-items:center;z-index:2;pointer-events:none}
+.empty .card{pointer-events:auto;max-width:440px;padding:28px;text-align:center}
+.empty h2{font:400 32px/1.1 var(--serif);margin:0 0 8px}
+.tip{position:absolute;z-index:4;pointer-events:none;max-width:280px;padding:8px 11px;border-radius:10px;font-size:13px;background:rgba(24,24,27,.95);border:1px solid var(--line2);box-shadow:var(--shadow)}
+.tip b{display:block;font-weight:500;color:var(--lilac)}
+
+/* tables */
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+.bar .input{width:auto;flex:1 1 220px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:500;color:var(--faint);font-size:12px;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:rgba(255,255,255,.02)}
+td .t{color:var(--ink);font-weight:500}
+td .c{color:var(--faint);font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+td.num,th.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.keyrow .revoked{color:var(--bad);font-size:12px}
+.steps{counter-reset:s;display:grid;gap:14px;padding:0;margin:0 0 26px;list-style:none}
+.steps li{counter-increment:s;display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start}
+.steps li::before{content:counter(s);width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:rgba(139,92,246,.18);color:var(--lilac);font-weight:600}
+pre.code{background:#0f0f12;border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow-x:auto;margin:0;font:13px/1.6 var(--mono);color:#d4d4d8}
+.copyline{display:flex;gap:8px;align-items:center;background:#0f0f12;border:1px solid var(--line);border-radius:12px;padding:6px 6px 6px 14px}
+.copyline code{flex:1}
+
+/* dialogs and toasts */
+dialog{border:1px solid var(--line2);border-radius:16px;background:#1c1c20;color:var(--ink);padding:0;width:min(520px,calc(100vw - 24px));box-shadow:var(--shadow)}
+dialog::backdrop{background:rgba(0,0,0,.6);backdrop-filter:blur(3px)}
+dialog form{padding:22px;display:grid;gap:14px}
+dialog h2{font:400 30px/1.1 var(--serif);margin:0}
+dialog .end{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.bigkey{font:500 15px/1.5 var(--mono);background:#0f0f12;border:1px solid var(--violet);border-radius:12px;padding:14px;overflow-wrap:anywhere;color:var(--lilac)}
+#toasts{position:fixed;right:16px;bottom:16px;display:grid;gap:8px;z-index:50}
+.toast{padding:11px 15px;border-radius:12px;background:#27272a;border:1px solid var(--line2);box-shadow:var(--shadow);font-size:14px;max-width:340px;animation:slide .25s ease both}
+.toast.bad{border-color:rgba(248,113,113,.5)}
+.loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--faint)}
+
+@media(max-width:720px){
+  .top{gap:10px;padding:8px 10px}
+  .brand span{display:none}
+  .who{display:none}
+  .tools{flex-wrap:wrap}
+  .searchbox{width:100%}
+  .counts{display:none}
+  .actions .btn .lbl{display:none}
+  .side{top:auto;left:8px;right:8px;bottom:8px;width:auto;max-height:62%}
+  .chips{bottom:auto;top:110px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .hero{top:auto;bottom:8vh;transform:none;animation:none}
+  .auth{top:auto;bottom:16px;transform:none;animation:none}
+  #landing .veil{background:linear-gradient(to top,rgba(24,24,27,.96) 30%,rgba(24,24,27,.2) 75%)}
+  .grid2{grid-template-columns:1fr}
+  table.tstack thead{display:none}
+  table.tstack tr{display:grid;grid-template-columns:auto 1fr;padding:8px 0;border-bottom:1px solid var(--line)}
+  table.tstack td{border:0;padding:4px 8px}
+  table.tstack td.num{text-align:left}
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<section id="landing" class="hidden">
+  <canvas class="graph" id="demoCanvas" aria-hidden="true"></canvas>
+  <div class="veil"></div>
+  <div class="hero" id="hero">
+    <h1>Cérebro da <em>Capri</em></h1>
+    <p>Tudo que a Capri aprende com você vira uma bolinha aqui: o que você gosta, as pessoas da sua vida, o que vocês leram juntos, as promessas dela. Ela organiza, liga uma coisa na outra e lembra antes de responder.</p>
+    <div class="row">
+      <a class="btn primary" href="#/registrar">Criar conta</a>
+      <a class="btn" href="#/entrar">Entrar</a>
+    </div>
+  </div>
+  <form class="auth card stack hidden" id="loginForm" autocomplete="on">
+    <div><h2>Entrar</h2><p class="muted" style="margin:0">Bem-vindo de volta ao cérebro dela.</p></div>
+    <div><label class="f" for="liEmail">E-mail</label><input class="input" id="liEmail" type="email" autocomplete="email" required></div>
+    <div><label class="f" for="liPass">Senha</label><input class="input" id="liPass" type="password" autocomplete="current-password" minlength="8" required></div>
+    <div class="err" id="liErr" role="alert"></div>
+    <button class="btn primary" type="submit">Entrar</button>
+    <p class="muted" style="margin:0;font-size:14px">Ainda não tem conta? <a href="#/registrar">Criar conta</a></p>
+  </form>
+  <form class="auth card stack hidden" id="regForm" autocomplete="on">
+    <div><h2>Criar conta</h2><p class="muted" style="margin:0">Um cérebro só seu. Ninguém mais vê o que tem nele.</p></div>
+    <div><label class="f" for="rgName">Seu nome (ou apelido)</label><input class="input" id="rgName" autocomplete="nickname" maxlength="60"></div>
+    <div><label class="f" for="rgEmail">E-mail</label><input class="input" id="rgEmail" type="email" autocomplete="email" required></div>
+    <div><label class="f" for="rgPass">Senha (8 caracteres ou mais)</label><input class="input" id="rgPass" type="password" autocomplete="new-password" minlength="8" maxlength="72" required></div>
+    <div class="err" id="rgErr" role="alert"></div>
+    <button class="btn primary" type="submit">Criar meu cérebro</button>
+    <p class="muted" style="margin:0;font-size:14px">Já tem conta? <a href="#/entrar">Entrar</a></p>
+  </form>
+  <div class="demo-tag">demonstração</div>
+</section>
+
+<section id="app" class="hidden">
+  <header class="top">
+    <a class="brand" href="#/cerebro"><i></i><span>Cérebro da Capri</span></a>
+    <nav class="tabs" id="tabs">
+      <a href="#/cerebro" data-r="cerebro">Cérebro</a>
+      <a href="#/memorias" data-r="memorias">Memórias</a>
+      <a href="#/chaves" data-r="chaves">Chaves da Capri</a>
+      <a href="#/conectar" data-r="conectar">Conectar</a>
+      <a href="#/conta" data-r="conta">Conta</a>
+    </nav>
+    <span class="who" id="who"></span>
+  </header>
+  <main class="view" id="view"></main>
+</section>
+
+<dialog id="memDialog">
+  <form method="dialog" id="memForm">
+    <h2 id="memTitle">Nova memória</h2>
+    <div><label class="f" for="mfTitle">Título (o nome da bolinha)</label><input class="input" id="mfTitle" maxlength="120" required></div>
+    <div><label class="f" for="mfContent">O que ela sabe</label><textarea class="input" id="mfContent" maxlength="4000" required></textarea></div>
+    <div class="grid2">
+      <div><label class="f" for="mfCat">Categoria</label><select class="input" id="mfCat"></select></div>
+      <div><label class="f" for="mfImp">Importância</label><select class="input" id="mfImp"><option value="1">1 · detalhe</option><option value="2">2</option><option value="3" selected>3 · normal</option><option value="4">4 · importante</option><option value="5">5 · essencial</option></select></div>
+    </div>
+    <div><label class="f" for="mfTags">Etiquetas, separadas por vírgula</label><input class="input" id="mfTags" placeholder="manhwa, romance"></div>
+    <div class="err" id="mfErr" role="alert" style="color:var(--bad);font-size:14px"></div>
+    <div class="end"><button class="btn" type="button" id="mfCancel">Cancelar</button><button class="btn primary" id="mfSave" value="ok">Salvar</button></div>
+  </form>
+</dialog>
+
+<dialog id="askDialog">
+  <form method="dialog">
+    <h2 id="askTitle">Tem certeza?</h2>
+    <p class="muted" id="askText" style="margin:0"></p>
+    <div class="end"><button class="btn" value="no">Cancelar</button><button class="btn primary" id="askYes" value="yes">Confirmar</button></div>
+  </form>
+</dialog>
+
+<dialog id="keyDialog">
+  <form method="dialog">
+    <h2>Sua chave nova</h2>
+    <p class="muted" style="margin:0">Guarde agora: ela não aparece de novo. Cole na Capri em <b>Cérebro online › Conectar meu cérebro</b>.</p>
+    <div class="bigkey" id="newKey"></div>
+    <div class="end"><button class="btn" type="button" id="copyKey">Copiar chave</button><button class="btn primary" value="ok">Já guardei</button></div>
+  </form>
+</dialog>
+
+<div id="toasts" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
