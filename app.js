@@ -440,12 +440,15 @@
         if (!this.nodes.some((n) => n.kind !== "hub" && n.cat === c.id)) continue;
         (this.nodes.some((n) => n.kind !== "hub" && n.cat === c.id && n.know) ? kc : pc).push(c.id);
       }
-      const base = Math.max(46, Math.sqrt(mems + 1) * 7.5);
-      const R = [base * 0.95, base * 1.8, base * 2.45, base * 3.1, base * 3.75, base * 4.4, base * 5.15];
+      // O núcleo cresce com o que ela sabe de vocês; os anéis do conhecimento vêm logo depois dele.
+      let mine = 0;
+      for (const n of this.nodes) if (n.kind !== "hub" && !n.know) mine++;
+      const base = Math.max(46, Math.sqrt(mems + 1) * 7.5), core = Math.max(base * 0.95, Math.sqrt(mine + 1) * 11);
+      const R = [core, core + base * 0.85, core + base * 1.5, core + base * 2.15, core + base * 2.8, core + base * 3.45, core + base * 4.2];
       const at = (list, cat) => { const i = Math.max(0, list.indexOf(cat)); return ((i + 0.5) / Math.max(1, list.length)) * TAU - Math.PI / 2; };
       this.lay = { base, R, pc, kc,
         ang: (n) => (n.know || (n.kind === "hub" && kc.includes(n.cat)) ? at(kc, n.cat) : at(pc, n.cat)),
-        hw: (n) => (Math.PI / Math.max(1, n.ring === 0 ? pc.length : kc.length)) * 0.86 };
+        hw: (n) => Math.min(Math.PI / 2.6, (Math.PI / Math.max(1, n.ring === 0 ? pc.length : kc.length)) * 0.86) };
     }
     setMode(mode) {
       if (mode === this.mode) return;
@@ -847,33 +850,41 @@
       }
 
       // Os nomes: os centros sempre; o resto aparece apagado quando se chega perto, e acende quando ligado ao que se aponta.
+      // Um nome que cairia em cima de outro mais importante fica de fora, para a rede não virar um borrão de letras.
       ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.lineJoin = "round";
-      let shown = 0;
-      const crowd = this.nodes.length > 400 ? 2.1 : this.nodes.length > 120 ? 1.6 : 1.1;
+      const crowd = this.nodes.length > 400 ? 2.1 : this.nodes.length > 120 ? 1.6 : 1.1, wanted = [];
       for (const n of this.nodes) {
         const on = lit ? lit.has(n) : true, isHub = n.kind === "hub", hub = isHub || n.r > 6.5;
-        let alpha;
-        if (n === act || n === this.hover) alpha = 1;
-        else if (lit && on) alpha = act ? 0.95 : 0.85;
-        else if (hub && !this.demo) alpha = lit ? 0.3 : 0.9;
-        else if (hub && this.demo) alpha = isHub ? 0.7 : 0;
-        else if (k > crowd && !this.demo) alpha = lit ? 0.16 : 0.42;
+        let alpha, rank;
+        if (n === act || n === this.hover) { alpha = 1; rank = 4; }
+        else if (lit && on) { alpha = act ? 0.95 : 0.85; rank = 3; }
+        else if (hub && !this.demo) { alpha = lit ? 0.3 : 0.9; rank = isHub ? 2.5 : 2; }
+        else if (hub && this.demo) { alpha = isHub ? 0.7 : 0; rank = 2; }
+        else if (k > crowd && !this.demo) { alpha = lit ? 0.16 : 0.42; rank = 1; }
         else alpha = 0;
         if (alpha <= 0) continue;
         const s = this.toScreen(n);
         if (s.x < -120 || s.x > W + 120 || s.y < -30 || s.y > H + 30) continue;
-        if (!hub && !on && ++shown > 350) continue;
+        wanted.push({ n, s, alpha, rank: rank + n.r / 100, on, isHub, hub });
+      }
+      wanted.sort((a, b) => b.rank - a.rank);
+      const taken = [];
+      for (const w of wanted) {
+        if (taken.length > 420) break;
+        const n = w.n, isHub = w.isHub;
         let label = n.label.length > 48 ? n.label.slice(0, 46) + "…" : n.label;
         if (isHub) label = label.toUpperCase();
-        ctx.font = isHub ? `600 11px "IBM Plex Sans", system-ui, sans-serif` : hub ? `600 12px "IBM Plex Sans", system-ui, sans-serif` : `400 11px "IBM Plex Sans", system-ui, sans-serif`;
+        const y = w.s.y + n.r * k + (isHub ? 6 : 3), half = label.length * (isHub ? 4.1 : 3.05) + 4, box = [w.s.x - half, y - 1, w.s.x + half, y + (isHub || w.hub ? 15 : 13)];
+        if (w.rank < 3.5 && taken.some((t) => box[0] < t[2] && box[2] > t[0] && box[1] < t[3] && box[3] > t[1])) continue;
+        taken.push(box);
+        ctx.font = isHub ? `600 11px "IBM Plex Sans", system-ui, sans-serif` : w.hub ? `600 12px "IBM Plex Sans", system-ui, sans-serif` : `400 11px "IBM Plex Sans", system-ui, sans-serif`;
         if (isHub && "letterSpacing" in ctx) ctx.letterSpacing = "1.6px";
-        ctx.globalAlpha = alpha;
+        ctx.globalAlpha = w.alpha;
         ctx.lineWidth = 3; ctx.strokeStyle = "rgba(8,8,12,0.85)";
-        const y = s.y + n.r * k + (isHub ? 6 : 3);
-        ctx.strokeText(label, s.x, y);
+        ctx.strokeText(label, w.s.x, y);
         const hc = isHub && this.colors ? lighten(CAT_RGB.get(n.cat) || MONO, 0.55) : null;
-        ctx.fillStyle = n === act ? "#ffffff" : lit && on ? "#ede9fe" : hc ? `rgb(${hc[0]},${hc[1]},${hc[2]})` : hub ? "#f4f4f5" : "#a1a1aa";
-        ctx.fillText(label, s.x, y);
+        ctx.fillStyle = n === act ? "#ffffff" : lit && w.on ? "#ede9fe" : hc ? `rgb(${hc[0]},${hc[1]},${hc[2]})` : w.hub ? "#f4f4f5" : "#a1a1aa";
+        ctx.fillText(label, w.s.x, y);
         if (isHub && "letterSpacing" in ctx) ctx.letterSpacing = "0px";
       }
       ctx.globalAlpha = 1;
