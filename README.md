@@ -23,6 +23,15 @@ e o **nível**: 1 Básico, 2 Elementar, 3 Intermediário, 4 Avançado, 5 Especia
 uma **trilha**: a mais funda "aprofunda" a de baixo. Na aba **Aprendizado** dá para ver as áreas, os assuntos e quanto ela
 já subiu em cada um; no grafo, a vista **Níveis** mostra o que ela sabe de vocês no meio e o conhecimento em anéis.
 
+### Em 3D
+
+O cérebro é uma constelação em 3D (WebGL, sem bibliotecas, em `space.js`): arraste para girar em volta, role (ou faça
+pinça) para aproximar, botão direito ou Shift para mover, dois cliques no vazio para ver tudo de novo. Parado, ele gira
+sozinho devagar. Cada memória é uma estrela única: a cor da categoria com um tom só dela, tamanho pela importância e
+pelas ligações, de 4 a 8 pontas, giro e cintilar tirados do próprio id, anéis no conhecimento avançado e mais brilho nas
+mais lembradas; no painel ela tem nome de estrela, classe e brilho. Dois fundos: **Noite** (como o mapa da internet) e
+**Claro** (como os grafos em papel branco). Sem WebGL, o site usa o grafo plano de antes.
+
 ### O cérebro cresce
 
 O visual muda com o tamanho: **Semente** (até 24 memórias), **Broto** (25+), **Constelação** (100+), **Galáxia** (300+),

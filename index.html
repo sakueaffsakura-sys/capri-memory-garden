@@ -217,6 +217,25 @@ table.topics td{vertical-align:middle;padding:10px 16px}
 table.topics a.t{color:var(--ink);font-weight:500}
 table.topics a.t:hover{color:var(--lilac)}
 
+/* 3D: dica de como girar, estrela de cada memória, e o fundo claro */
+.hint3d{position:absolute;right:16px;bottom:56px;z-index:3;font-size:12px;color:var(--faint);pointer-events:none;text-align:right;max-width:60vw}
+.star{font-size:12.5px;color:var(--dim);padding:8px 10px;border-radius:10px;background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.22)}
+.star b{color:var(--lilac);font-weight:500}
+.tip .starline{margin-top:4px;font-size:12px;color:var(--faint)}
+.view.light{--ink:#18181b;--dim:#52525b;--faint:#71717a;--glass:rgba(255,255,255,.86);--line:rgba(0,0,0,.08);--line2:rgba(0,0,0,.14);--lilac:#5b21b6;--violet2:#7c3aed;color:var(--ink)}
+.view.light .card{box-shadow:0 10px 30px rgba(0,0,0,.12)}
+.view.light .side .content{color:#27272a}
+.view.light .tip{background:rgba(255,255,255,.97);color:#27272a}
+.view.light .tag,.view.light .nb,.view.light .trail button{background:rgba(0,0,0,.035)}
+.view.light .btn{background:rgba(255,255,255,.8);border-color:rgba(0,0,0,.14);color:#18181b}
+.view.light .btn.primary{background:var(--violet);color:#fff;border-color:var(--violet)}
+.view.light .actions .btn{background:rgba(255,255,255,.86)}
+.view.light .actions .btn.primary{background:var(--violet)}
+.view.light .seg button.on{background:rgba(139,92,246,.16);color:#5b21b6}
+.view.light .input{background:#fff;border-color:rgba(0,0,0,.16)}
+.view.light .st-bar{background:rgba(0,0,0,.08)}
+.view.light .star{background:rgba(124,58,237,.06)}
+
 @media(max-width:720px){
   .top{gap:10px;padding:8px 10px}
   .brand span{display:none}
@@ -224,6 +243,7 @@ table.topics a.t:hover{color:var(--lilac)}
   .tools{flex-wrap:wrap}
   .searchbox{width:100%}
   .stage{display:none}
+  .hint3d{bottom:12px;right:12px;left:12px;text-align:center;max-width:none}
   .seg{order:2;height:38px}
   .journey{grid-template-columns:repeat(3,1fr);row-gap:16px}
   .journey li:nth-child(3)::after{display:none}
@@ -329,6 +349,7 @@ table.topics a.t:hover{color:var(--lilac)}
 </dialog>
 
 <div id="toasts" aria-live="polite"></div>
-<script src="app.js"></script>
+<script src="space.js?v=3d1"></script>
+<script src="app.js?v=3d1"></script>
 </body>
 </html>

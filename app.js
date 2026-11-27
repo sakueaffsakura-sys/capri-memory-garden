@@ -310,6 +310,7 @@
   const radius = (n) => (n.kind === "hub" ? 4.8 + Math.min(10, Math.sqrt(n.deg) * 0.8) : 1.5 + n.imp * 0.32 + (n.level ? n.level * 0.24 : 0) + Math.min(4.5, Math.sqrt(n.deg) * 0.55));
   const rgb = (hex) => { const v = parseInt(hex.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
   const CAT_RGB = new Map(CATS.map((c) => [c.id, rgb(c.color)]));
+  const CAT_RGB01 = new Map(CATS.map((c) => [c.id, rgb(c.color).map((v) => v / 255)]));
   const MONO = [212, 212, 216], VIOLET_RGB = [139, 92, 246];
   const lighten = (c, f) => [Math.round(c[0] + (255 - c[0]) * f), Math.round(c[1] + (255 - c[1]) * f), Math.round(c[2] + (255 - c[2]) * f)];
   const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
@@ -1032,8 +1033,10 @@
       const live = shown.concat(hubs.filter((h) => want(h.cat)));
       demoGraph.setData(live, edges, heat);
     };
-    demoGraph = new Graph($("#demoCanvas"), {
+    const Engine = window.Space && Space.ok() ? Space : Graph;
+    demoGraph = new Engine($("#demoCanvas"), {
       demo: true,
+      cats: CATS.map((c) => c.id), color: (cat) => CAT_RGB01.get(cat) || CAT_RGB01.get("outros"),
       size: () => born,
       caption: () => {
         const day = 1 + Math.floor(born / 9), st = STAGES[stageOf(born)].name;
@@ -1168,12 +1171,20 @@
       <div class="chips" id="chips"></div>
       <aside class="side card hidden" id="side" aria-live="polite"></aside>
       <div class="empty hidden" id="empty"><div class="card"><h2>O cérebro ainda está vazio</h2><p class="muted">Conecte a Capri com uma chave e tudo que ela aprender aparece aqui como bolinhas. Ou crie a primeira memória você mesmo.</p><div class="row" style="justify-content:center"><a class="btn primary" href="#/conectar">Conectar a Capri</a><button class="btn" id="add2">Nova memória</button></div></div></div>
-      <div class="tip hidden" id="tip"></div>`;
+      <div class="tip hidden" id="tip"></div>
+      <div class="hint3d" id="hint3d">Arraste para girar · role para aproximar · botão direito move · dois cliques no vazio mostram tudo</div>`;
     const hiddenCats = new Set(prefs.hidden || []);
     let showHubs = prefs.hubs !== false, colors = prefs.colors !== false, query = "", selectedId = null, mode = prefs.mode === "levels" ? "levels" : "web";
     const tip = $("#tip", el), side = $("#side", el);
-    const g = new Graph($("canvas", el), {
-      colors, mode,
+    // 3D quando o navegador consegue (WebGL); senão, o grafo plano de antes.
+    const three = prefs.dim !== "2d" && window.Space && Space.ok(), theme = prefs.theme === "light" ? "light" : "dark";
+    el.classList.toggle("light", three && theme === "light");
+    const Engine = three ? Space : Graph;
+    const g = new Engine($("canvas", el), {
+      colors, mode, theme, spin: prefs.spin !== false,
+      cats: CATS.map((c) => c.id), color: (cat) => CAT_RGB01.get(cat) || CAT_RGB01.get("outros"),
+      levelColors: LEVEL_COLORS.map((h) => (h ? rgb(h).map((v) => v / 255) : null)), levelHex: LEVEL_COLORS, levelNames: LEVELS,
+      onLost() { prefs.dim = "2d"; savePrefs(); toast("O 3D travou neste navegador; voltei para o plano.", true); shownRoute = null; route(); },
       size: () => Store.mems.size,
       caption() {
         if (!Store.mems.size) return null;
@@ -1190,13 +1201,17 @@
       onHover(n, p) {
         if (!n || !p) { tip.classList.add("hidden"); return; }
         const m = Store.mems.get(n.id);
+        const st = m && window.Space ? Space.starOf(m.id, m.importance, m.recall_count, m.level) : null;
         tip.innerHTML = n.kind === "hub" ? `<b>${esc(n.label)}</b>${n.deg} ${n.deg === 1 ? "memória" : "memórias"}`
-          : `<b>${esc(n.label)}</b>${esc(catOf(n.cat).label)}${m && m.topic ? " · " + esc(m.topic) : ""}${m && m.level ? `<br>${levelBadge(m.level)}` : m ? " · " + stars(m.importance) : ""}`;
+          : `<b>${esc(n.label)}</b>${esc(catOf(n.cat).label)}${m && m.topic ? " · " + esc(m.topic) : ""}${m && m.level ? `<br>${levelBadge(m.level)}` : m ? " · " + stars(m.importance) : ""}${st ? `<div class="starline">✦ ${esc(st.name)} · classe ${st.cls}</div>` : ""}`;
         tip.style.left = Math.min(p.x + 14, el.clientWidth - 290) + "px";
         tip.style.top = p.y + 14 + "px";
         tip.classList.remove("hidden");
       },
     });
+    if (/[?&]debug\b/.test(location.search)) window.__graph = g;
+    $("#hint3d", el).classList.toggle("hidden", !three);
+    if (three && matchMedia("(pointer: coarse)").matches) $("#hint3d", el).textContent = "Arraste para girar · pinça para aproximar · toque numa estrela";
     const segs = el.querySelectorAll(".seg button");
     const paintSeg = () => segs.forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
     paintSeg();
@@ -1221,7 +1236,7 @@
         edges.push({ a: l.source_id, b: l.target_id, trail: TRAIL.has(l.relation) });
         deg.set(l.source_id, (deg.get(l.source_id) || 0) + 1); deg.set(l.target_id, (deg.get(l.target_id) || 0) + 1);
       }
-      const nodes = shown.map((m) => ({ id: m.id, kind: "m", cat: m.category, label: m.title, imp: m.importance, level: m.level || 0, know: isKnow(m), deg: deg.get(m.id) || 0, born: Store.born.get(m.id) }));
+      const nodes = shown.map((m) => ({ id: m.id, kind: "m", cat: m.category, label: m.title, imp: m.importance, level: m.level || 0, know: isKnow(m), recalls: m.recall_count || 0, deg: deg.get(m.id) || 0, born: Store.born.get(m.id) }));
       if (showHubs) {
         const perCat = new Map();
         for (const m of shown) { perCat.set(m.category, (perCat.get(m.category) || 0) + 1); edges.push({ a: m.id, b: "hub:" + m.category, hub: true }); }
@@ -1234,6 +1249,10 @@
       const chip = (c) => `<button class="chip${hiddenCats.has(c.id) ? " off" : ""}" data-c="${c.id}" aria-pressed="${!hiddenCats.has(c.id)}"><i class="dot" style="background:${c.color}"></i>${esc(c.label)} <span class="n">${counts.get(c.id)}</span></button>`;
       const mine = CATS.filter((c) => c.g === "p" && counts.get(c.id)), know = CATS.filter((c) => c.g === "k" && counts.get(c.id));
       $("#chips", el).innerHTML = mine.map(chip).join("") + (know.length ? `<span class="chipsep">Conhecimento</span>` + know.map(chip).join("") : "")
+        + `<span class="chipsep">Vista</span>`
+        + (window.Space && Space.ok() ? `<button class="chip hubs${three ? "" : " off"}" data-c="__3d" aria-pressed="${three}">3D</button>` : "")
+        + (three ? `<button class="chip hubs${theme === "light" ? "" : " off"}" data-c="__light" aria-pressed="${theme === "light"}">Fundo claro</button>`
+          + `<button class="chip hubs${prefs.spin !== false ? "" : " off"}" data-c="__spin" aria-pressed="${prefs.spin !== false}">Girar sozinho</button>` : "")
         + `<button class="chip hubs${showHubs ? "" : " off"}" data-c="__hubs" aria-pressed="${showHubs}">Mostrar categorias</button>`
         + `<button class="chip hubs${colors ? "" : " off"}" data-c="__colors" aria-pressed="${colors}">Cores</button>`;
       stageCard();
@@ -1265,6 +1284,7 @@
           <h3>${esc(m.title)}</h3><div class="row" style="gap:8px;margin-top:6px">${m.level ? levelBadge(m.level) : `<span class="stars" title="Importância ${m.importance} de 5">${stars(m.importance)}</span>`}${m.topic ? `<button class="topic" id="topicGo">${esc(m.topic)}</button>` : ""}</div></div>
         <div class="body">
           <div class="content">${esc(m.content)}</div>
+          ${(() => { const st = window.Space ? Space.starOf(m.id, m.importance, m.recall_count, m.level) : null; return st ? `<div class="star" title="Cada memória é uma estrela única do cérebro">✦ Estrela <b>${esc(st.name)}</b> ${esc(st.code)} · classe ${st.cls} · brilho ${String(st.mag).replace(".", ",")} · ${st.points} pontas</div>` : ""; })()}
           ${(m.tags || []).length ? `<div>${m.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
           ${trail && trail.mems.length > 1 ? `<div><div class="f" style="font-size:13px;color:var(--faint);margin-bottom:8px">Trilha de ${esc(trail.topic)} · do básico ao avançado</div><ol class="trail">${trail.mems.map((x) => `<li class="${x.id === m.id ? "here" : ""}" style="--lc:${LEVEL_COLORS[x.level || 1]}"><button data-go="${x.id}"><span>${esc(x.title)}</span><small>${x.level ? LEVELS[x.level] : "sem nível"}</small></button></li>`).join("")}</ol></div>` : ""}
           <dl class="meta"><dt>Criada</dt><dd>${when(m.created_at)}</dd><dt>Mudou</dt><dd>${when(m.updated_at)}</dd><dt>Lembrada</dt><dd>${m.recall_count ? `${m.recall_count}× · ${ago(m.last_recalled_at)}` : "ainda não"}</dd><dt>Veio de</dt><dd>${esc(m.source || "—")}${m.mentions > 1 ? ` · citada ${m.mentions}×` : ""}</dd></dl>
@@ -1308,6 +1328,10 @@
       const b = e.target.closest(".chip");
       if (!b) return;
       if (b.dataset.c === "__colors") { colors = !colors; prefs.colors = colors; g.colors = colors; g.dirty = true; savePrefs(); build(0); return; }
+      // Trocar 2D/3D monta a vista de novo; fundo e giro mudam na hora.
+      if (b.dataset.c === "__3d") { prefs.dim = three ? "2d" : "3d"; savePrefs(); shownRoute = null; route(); return; }
+      if (b.dataset.c === "__light") { prefs.theme = theme === "light" ? "dark" : "light"; savePrefs(); shownRoute = null; route(); return; }
+      if (b.dataset.c === "__spin") { prefs.spin = prefs.spin === false; savePrefs(); g.spin = prefs.spin; build(0); return; }
       if (b.dataset.c === "__hubs") { showHubs = !showHubs; prefs.hubs = showHubs; }
       else { hiddenCats.has(b.dataset.c) ? hiddenCats.delete(b.dataset.c) : hiddenCats.add(b.dataset.c); prefs.hidden = [...hiddenCats]; }
       savePrefs(); build(0.4);
