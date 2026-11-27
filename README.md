@@ -56,6 +56,21 @@ O visual muda com o tamanho: **Semente** (até 24 memórias), **Broto** (25+), *
 **Nebulosa** (1000+) e **Universo** (3000+). Quanto maior, mais estrelas no fundo, mais nuvens coloridas atrás de cada
 categoria e mais faíscas correndo pelas ligações; quando ela lembra de algo, a bolinha acende e solta faíscas.
 
+## Reflexão: o que ela entendeu de você
+
+De tempos em tempos (depois de umas 25 memórias novas, ou de algumas horas com pelo menos 5) a Capri reflete sobre tudo que
+lembra, usando o cérebro dela na nuvem. Ela escreve um perfil seu (quem você é, gostos, pessoas, rotina, objetivos), as regras
+que você pediu sobre o jeito dela, como a relação de vocês vem sendo, os assuntos em aberto e o que ela aprendeu sobre si.
+Junta as memórias repetidas e deixa de lado as que ficaram velhas, erradas ou que nem eram sobre você, sempre com o motivo.
+A página **O que ela entendeu** mostra tudo isso, deixa corrigir qualquer parte e trazer de volta o que foi deixado de lado.
+No PC: menu dela › Cérebro online › Refletir agora.
+
+Quando você pede algo sobre o jeito dela ("me chama de...", "responde mais curto") ou corrige algo que ela entendeu errado,
+ela anota na hora como regra ou correção, e isso já vale na próxima resposta.
+
+A busca do que ela lembra ignora acentos, entende quando ("ontem", "semana passada") e prefere o que é sobre você quando a
+pergunta é pessoal.
+
 ## Cada um com o seu cérebro
 
 Cada conta tem um cérebro só dela. No banco, toda tabela tem segurança por linha (RLS): cada pessoa só lê, cria, muda e

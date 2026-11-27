@@ -1950,6 +1950,69 @@
     return {};
   }
 
+  // O que ela entendeu: o perfil que a reflexão dela escreve a partir das memórias (quem você é, como quer ser tratado, a
+  // relação, os assuntos em aberto e o que ela aprendeu sobre si), as reflexões e o que ela deixou de lado e por quê.
+  const PERFIL = [
+    { f: "perfil", t: "Quem você é", d: "O que ela sabe de você, juntando tudo que lembra.", max: 6000 },
+    { f: "regras", t: "Como você quer ser tratado", d: "O que você pediu sobre o jeito dela. Ela segue isso sempre.", max: 3000 },
+    { f: "relacao", t: "Vocês dois", d: "Como a relação de vocês vem sendo.", max: 3000 },
+    { f: "pendentes", t: "Assuntos em aberto", d: "Promessas, planos e coisas para perguntar como foram.", max: 3000 },
+    { f: "eu", t: "O que ela aprendeu sobre si", d: "Gostos e jeitos que ela formou com você.", max: 3000 },
+  ];
+  function viewProfile(el) {
+    el.innerHTML = `<div class="page"><h1>O que ela entendeu</h1><p class="lead">De tempos em tempos a Capri reflete sobre tudo que lembra de você: junta o que se repete, deixa de lado o que ficou velho ou errado e escreve o que entendeu. É isso que ela lê antes de falar com você. Você pode corrigir qualquer parte.</p>
+      <div id="pf"><div class="panel muted">Carregando…</div></div>
+      <h2 class="sec">Reflexões</h2><div id="rf" class="stack" style="gap:10px"><div class="panel muted">Carregando…</div></div>
+      <h2 class="sec">Deixadas de lado pela reflexão</h2><div id="ar" class="stack" style="gap:10px"><div class="panel muted">Carregando…</div></div></div>`;
+    let row = null;
+    const draw = () => {
+      const st = row || {};
+      $("#pf", el).innerHTML = `${st.reflected_at ? `<p class="faint" style="margin:0 0 12px">Última reflexão ${esc(ago(st.reflected_at))} · ${st.reflections || 0} ${st.reflections === 1 ? "reflexão" : "reflexões"}</p>` : `<div class="panel" style="margin-bottom:14px"><b>Ela ainda não refletiu.</b><p class="muted" style="margin:6px 0 0">A primeira reflexão acontece sozinha quando ela tem algumas memórias e um cérebro na nuvem. No PC, no menu dela: Cérebro online › Refletir agora.</p></div>`}
+        <form id="pform" class="stack" style="gap:14px">${PERFIL.map((p) => `<div class="panel"><label class="f" for="pf_${p.f}"><b>${p.t}</b> <span class="faint">${p.d}</span></label>
+          <textarea class="input" id="pf_${p.f}" rows="${p.f === "perfil" ? 12 : 6}" maxlength="${p.max}" style="width:100%;font-family:inherit;line-height:1.5">${esc(st[p.f] || "")}</textarea></div>`).join("")}
+          <div class="row"><span class="spacer"></span><button class="btn primary">Salvar correções</button></div></form>`;
+      $("#pform", el).onsubmit = async (e) => {
+        e.preventDefault();
+        const body = { user_id: Auth.uid };
+        for (const p of PERFIL) body[p.f] = $("#pf_" + p.f, el).value.trim().slice(0, p.max);
+        try {
+          const saved = await rest("brain_state?on_conflict=user_id", { method: "POST", body, prefer: "resolution=merge-duplicates,return=representation" });
+          row = (saved && saved[0]) || { ...row, ...body };
+          toast("Salvo. Ela lê isso na próxima conversa.");
+          draw();
+        } catch (err) { toast(err.message, true); }
+      };
+    };
+    const load = async () => {
+      try {
+        const [st, rf, ar] = await Promise.all([
+          rest("brain_state?select=*&limit=1"),
+          rest("reflections?select=id,created_at,summary,seen,added,archived,merged&order=created_at.desc&limit=12"),
+          rest("memories?select=id,title,content,archived_reason,updated_at&archived=is.true&archived_reason=not.is.null&order=updated_at.desc&limit=30"),
+        ]);
+        row = st[0] || null;
+        draw();
+        $("#rf", el).innerHTML = rf.length ? rf.map((r) => `<div class="panel"><div class="row" style="justify-content:space-between;align-items:baseline;gap:10px"><b>${esc(when(r.created_at))}</b><span class="faint" style="font-size:12px">leu ${r.seen} · juntou ${r.merged} · deixou de lado ${r.archived} · novas ${r.added}</span></div>${r.summary ? `<div class="c" style="margin-top:6px">${esc(r.summary)}</div>` : ""}</div>`).join("")
+          : `<div class="panel muted">Nenhuma reflexão ainda.</div>`;
+        $("#ar", el).innerHTML = ar.length ? ar.map((m) => `<div class="panel ar" data-id="${m.id}"><div class="row" style="justify-content:space-between;align-items:baseline;gap:10px"><b>${esc(m.title)}</b><button class="btn small" data-a="wake">Lembrar de novo</button></div>
+            <div class="faint" style="font-size:13px;margin-top:4px">Motivo: ${esc(m.archived_reason)}</div></div>`).join("")
+          : `<div class="panel muted">Nada deixado de lado ainda.</div>`;
+        el.querySelectorAll(".ar [data-a=wake]").forEach((b) => (b.onclick = async () => {
+          const id = b.closest(".ar").dataset.id;
+          try {
+            await rest(`memories?id=eq.${id}`, { method: "PATCH", body: { archived: false, archived_reason: null } });
+            const m = Store.mems.get(id);
+            if (m) { m.archived = false; Store.emit(); }
+            b.closest(".ar").remove();
+            toast("Ela voltou a lembrar disso.");
+          } catch (err) { toast(err.message, true); }
+        }));
+      } catch (err) { $("#pf", el).innerHTML = `<div class="panel" style="color:var(--bad)">${esc(err.message)}</div>`; }
+    };
+    load();
+    return {};
+  }
+
   function viewConnect(el) {
     el.innerHTML = `<div class="page"><h1>Conectar a Capri</h1><p class="lead">Três passos e tudo que ela aprender começa a aparecer no cérebro, como bolinhas novas brilhando.</p>
       <ol class="steps">
@@ -2019,7 +2082,7 @@
   });
 
   // ---------------- rotas ----------------
-  const VIEWS = { cerebro: viewGraph, aprendizado: viewLearn, revisar: viewReview, diario: viewDiary, memorias: viewList, chaves: viewKeys, conectar: viewConnect, conta: viewAccount };
+  const VIEWS = { cerebro: viewGraph, perfil: viewProfile, aprendizado: viewLearn, revisar: viewReview, diario: viewDiary, memorias: viewList, chaves: viewKeys, conectar: viewConnect, conta: viewAccount };
   // Quantos estudos estão na hora de revisar, na aba.
   function badge() {
     const b = $("#dueBadge");
@@ -2065,7 +2128,7 @@
     view.innerHTML = "";
     current = VIEWS[r](view) || {};
     badge();
-    document.title = ({ cerebro: "Cérebro", aprendizado: "Aprender", revisar: "Revisar", diario: "Diário", memorias: "Memórias", chaves: "Chaves da Capri", conectar: "Conectar a Capri", conta: "Conta" })[r] + " · Cérebro da Capri";
+    document.title = ({ cerebro: "Cérebro", perfil: "O que ela entendeu", aprendizado: "Aprender", revisar: "Revisar", diario: "Diário", memorias: "Memórias", chaves: "Chaves da Capri", conectar: "Conectar a Capri", conta: "Conta" })[r] + " · Cérebro da Capri";
   }
   window.addEventListener("hashchange", route);
   Auth.load();

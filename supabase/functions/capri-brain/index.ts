@@ -7,6 +7,10 @@
 // enfraquece e que lembrar, ouvir de novo e revisar aumentam. "due" lista o que está na hora de revisar e "review"
 // registra uma revisão (0 errei, 1 difícil, 2 lembrei, 3 fácil). "goals" e "goal" cuidam das metas de estudo e "next"
 // diz o próximo passo de cada uma. "diary" é o diário (os episódios). "core" leva junto as metas e o que revisar.
+// Reflexão: "reflect_input" entrega o que mudou desde a última reflexão e os fatos ativos; a Capri pensa sobre isso com o
+// cérebro dela e manda "reflect_apply" com o perfil novo (quem a pessoa é, como quer ser tratada, a relação, o que ela
+// aprendeu sobre si, os assuntos em aberto), as memórias que ficaram velhas, as repetidas para juntar e o que concluiu.
+// "state" e "state_set" leem e mudam esse perfil. "core" já traz o perfil junto.
 // Toda ação mexe só no cérebro do dono da chave.
 // A ação "register" (cadastro pelo site) não precisa de chave: cria a conta já confirmada.
 // Publicada com verify_jwt = false (a própria função confere a chave).
@@ -200,7 +204,48 @@ Deno.serve(async (req) => {
             content: due.map((m) => `${m.title}${m.topic ? " (" + m.topic + ", nível " + (m.level ?? "?") + ")" : ""}`).join("; ")
               + ". Quando couber na conversa, posso puxar um desses assuntos ou perguntar sobre ele para fixar." });
         }
-        return reply(200, { ok: true, memories, goals: goals.length, due: due.length });
+        const state = await rpc("brain_state_get", { p_user: user }).catch(() => null);
+        const topics = body?.topics === false ? [] : await rpc("brain_topics", { p_user: user, p_limit: int(body?.topics_limit, 25, 1, 60) }).catch(() => []);
+        return reply(200, { ok: true, memories, goals: goals.length, due: due.length, state, topics });
+      }
+      case "state":
+        return reply(200, { ok: true, state: await rpc("brain_state_get", { p_user: user }) });
+      case "state_set": {
+        const patch: Record<string, string> = {};
+        for (const [f, max] of [["perfil", 6000], ["regras", 3000], ["relacao", 3000], ["eu", 3000], ["pendentes", 3000]] as const) {
+          if (typeof body?.[f] === "string") patch[f] = str(body[f], max);
+        }
+        if (!Object.keys(patch).length) return fail(400, "nada para mudar");
+        return reply(200, { ok: true, state: await rpc("brain_state_set", { p_user: user, p_state: patch }) });
+      }
+      case "reflect_input":
+        return reply(200, { ok: true, ...(await rpc("brain_reflect_input", { p_user: user, p_new: int(body?.new, 60, 1, 120), p_facts: int(body?.facts, 140, 1, 300) })) });
+      case "reflect_apply": {
+        // O que a reflexão concluiu. Juntar e acrescentar passam pelas mesmas portas de sempre; o resto vai de uma vez.
+        const state: Record<string, string> = {};
+        for (const [f, max] of [["perfil", 6000], ["regras", 3000], ["relacao", 3000], ["eu", 3000], ["pendentes", 3000]] as const) {
+          if (typeof body?.[f] === "string") state[f] = str(body[f], max);
+        }
+        const isId = (v: unknown) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
+        let merged = 0, added = 0;
+        const gone = new Set<string>();
+        for (const g of (Array.isArray(body?.merge) ? body.merge : []).slice(0, 12)) {
+          const keep = g?.keep, drop = Array.isArray(g?.drop) ? g.drop.filter((d: unknown) => isId(d) && d !== keep && !gone.has(d as string)).slice(0, 10) : [];
+          if (!isId(keep) || gone.has(keep) || !drop.length) continue;
+          try {
+            const n = Number(await rpc("brain_merge", { p_user: user, p_keep: keep, p_drop: drop })) || 0;
+            merged += n;
+            drop.forEach((d: string) => gone.add(d));
+          } catch (_) { /* uma junção que não deu não para a reflexão */ }
+        }
+        for (const item of (Array.isArray(body?.add) ? body.add : []).slice(0, 8)) {
+          try { await remember(user, { ...item, source: "reflexao", kind: kindOf(item?.kind) || "fato" }); added++; } catch (_) { /* idem */ }
+        }
+        const archive = (Array.isArray(body?.archive) ? body.archive : []).filter((a: { id?: unknown }) => isId(a?.id) && !gone.has(a.id as string)).slice(0, 25)
+          .map((a: { id: string; reason?: unknown }) => ({ id: a.id, reason: str(a.reason, 300) }));
+        const done = await rpc("brain_reflect_apply", { p_user: user, p_state: state, p_archive: archive, p_summary: str(body?.summary, 2000),
+          p_seen: int(body?.seen, 0, 0, 100000), p_added: added, p_merged: merged });
+        return reply(200, { ok: true, merged, added, ...done });
       }
       case "due":
         return reply(200, { ok: true, memories: await rpc("brain_due", { p_user: user, p_limit: int(body?.limit, 20, 1, 100) }) });
