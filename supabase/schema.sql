@@ -358,3 +358,20 @@ grant execute on function public.brain_user_for_key(text), public.brain_find(uui
 revoke execute on function public.organize_my_brain() from public, anon;
 grant execute on function public.organize_my_brain() to authenticated;
 revoke execute on function public.handle_new_user(), public.memories_touch() from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- 26/11: conhecimento do básico ao especialista (migrações "conhecimento_niveis_assuntos" e "assunto_sem_acento",
+-- guardadas no histórico de migrações do projeto). Resumo do que mudou:
+--   memories.level  smallint 1..5 (1 Básico, 2 Elementar, 3 Intermediário, 4 Avançado, 5 Especialista), nulo = não é estudo
+--   memories.topic  text até 80 (o assunto); índice (user_id, brain_topic_key(topic))
+--   categorias novas: conhecimento, ciencia, tecnologia, matematica, idiomas, historia, arte, saude, habilidades;
+--     brain_category() entende sinônimos ("biologia" -> ciencia, "programacao" -> tecnologia...)
+--   brain_topic_key(): assunto sem acento e sem maiúsculas, para "fotossintese" e "Fotossíntese" serem o mesmo
+--   memories_topiclink() (security definer, gatilhos memories_topic_new / memories_topic_change): cada memória de um
+--     assunto se liga ao degrau de baixo ("aprofunda"), ao de cima ("base para") e a até duas do mesmo nível
+--     ("mesmo assunto")
+--   brain_remember(..., p_level, p_topic): junta o assunto com a grafia que já existe; brain_shape devolve level e topic
+--   brain_core: só o que é sobre vocês (o conhecimento não entra em toda conversa)
+--   brain_topics(p_user, p_limit): assuntos com a contagem por nível; brain_stats ganhou knowledge e topics
+--   memories_touch: o assunto entra na busca; grant execute em brain_words para authenticated (criar e editar pelo
+--     site falhava com "permission denied for function brain_words")

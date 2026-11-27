@@ -7,23 +7,48 @@
     key: "sb_publishable_eSrxXF0IbJhd3eyu0gm7XA_PpAs4trf",
     api: "https://wzecozxpipxbalauazub.supabase.co/functions/v1/capri-brain",
   };
+  // Dois grupos: o que ela sabe de vocês (p) e o que ela estuda (k).
   const CATS = [
-    { id: "sobre-voce", label: "Sobre você", color: "#f472b6" },
-    { id: "gostos", label: "Gostos", color: "#fb923c" },
-    { id: "pessoas", label: "Pessoas", color: "#facc15" },
-    { id: "conversas", label: "Conversas", color: "#a3e635" },
-    { id: "sentimentos", label: "Sentimentos", color: "#f87171" },
-    { id: "planos", label: "Planos e promessas", color: "#34d399" },
-    { id: "rotina", label: "Rotina", color: "#22d3ee" },
-    { id: "jogos", label: "Jogos", color: "#60a5fa" },
-    { id: "leituras", label: "Leituras", color: "#c084fc" },
-    { id: "musica", label: "Música", color: "#e879f9" },
-    { id: "capri", label: "Sobre a Capri", color: "#a78bfa" },
-    { id: "outros", label: "Outros", color: "#a1a1aa" },
+    { id: "sobre-voce", label: "Sobre você", color: "#f472b6", g: "p" },
+    { id: "gostos", label: "Gostos", color: "#fb923c", g: "p" },
+    { id: "pessoas", label: "Pessoas", color: "#facc15", g: "p" },
+    { id: "conversas", label: "Conversas", color: "#a3e635", g: "p" },
+    { id: "sentimentos", label: "Sentimentos", color: "#f87171", g: "p" },
+    { id: "planos", label: "Planos e promessas", color: "#34d399", g: "p" },
+    { id: "rotina", label: "Rotina", color: "#22d3ee", g: "p" },
+    { id: "jogos", label: "Jogos", color: "#60a5fa", g: "p" },
+    { id: "leituras", label: "Leituras", color: "#c084fc", g: "p" },
+    { id: "musica", label: "Música", color: "#e879f9", g: "p" },
+    { id: "capri", label: "Sobre a Capri", color: "#a78bfa", g: "p" },
+    { id: "outros", label: "Outros", color: "#a1a1aa", g: "p" },
+    { id: "conhecimento", label: "Conhecimento geral", color: "#cbd5e1", g: "k" },
+    { id: "ciencia", label: "Ciência e natureza", color: "#4ade80", g: "k" },
+    { id: "tecnologia", label: "Tecnologia", color: "#38bdf8", g: "k" },
+    { id: "matematica", label: "Matemática e lógica", color: "#818cf8", g: "k" },
+    { id: "idiomas", label: "Idiomas", color: "#fda4af", g: "k" },
+    { id: "historia", label: "História e mundo", color: "#fbbf24", g: "k" },
+    { id: "arte", label: "Arte e cultura", color: "#f0abfc", g: "k" },
+    { id: "saude", label: "Corpo e saúde", color: "#5eead4", g: "k" },
+    { id: "habilidades", label: "Como fazer", color: "#fdba74", g: "k" },
   ];
   const CAT = new Map(CATS.map((c) => [c.id, c]));
   const catOf = (id) => CAT.get(id) || CAT.get("outros");
-  const MCOLS = "id,title,content,category,importance,tags,source,happened_at,mentions,recall_count,last_recalled_at,created_at,updated_at";
+  const LEVELS = ["", "Básico", "Elementar", "Intermediário", "Avançado", "Especialista"];
+  const LEVEL_COLORS = ["", "#94a3b8", "#5eead4", "#60a5fa", "#a78bfa", "#fbbf24"];
+  const isKnow = (m) => m.level != null || catOf(m.category).g === "k";
+  // O cérebro muda de cara conforme cresce.
+  const STAGES = [
+    { min: 0, name: "Semente", line: "As primeiras lembranças começando a brotar." },
+    { min: 25, name: "Broto", line: "Os primeiros grupos já aparecem e as ligações começam a se cruzar." },
+    { min: 100, name: "Constelação", line: "Cada assunto ganha uma nuvem de luz própria." },
+    { min: 300, name: "Galáxia", line: "As ideias giram umas em volta das outras e soltam faíscas o tempo todo." },
+    { min: 1000, name: "Nebulosa", line: "Um céu inteiro de lembranças e conhecimento." },
+    { min: 3000, name: "Universo", line: "Tudo que ela sabe, do básico ao especialista, brilhando junto." },
+  ];
+  const stageOf = (n) => { let i = 0; while (i + 1 < STAGES.length && n >= STAGES[i + 1].min) i++; return i; };
+  const growthOf = (n) => Math.max(0, Math.min(1, Math.log(1 + n) / Math.log(1 + 3000)));
+  const REDUCED = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const MCOLS = "id,title,content,category,importance,level,topic,tags,source,happened_at,mentions,recall_count,last_recalled_at,created_at,updated_at";
   const LCOLS = "id,source_id,target_id,relation,strength,auto,created_at";
   const SESSION = "cerebro.sessao", PREFS = "cerebro.prefs";
   const BG = "#18181b", VIOLET = "#8b5cf6";
@@ -154,7 +179,7 @@
 
   // ---------------- dados ----------------
   const Store = {
-    mems: new Map(), links: new Map(), loaded: false, loading: null, lastMem: "", lastLink: "", subs: new Set(), born: new Map(),
+    mems: new Map(), links: new Map(), loaded: false, loading: null, lastMem: "", lastLink: "", subs: new Set(), born: new Map(), sparks: new Set(),
     reset() { this.mems.clear(); this.links.clear(); this.loaded = false; this.loading = null; this.lastMem = this.lastLink = ""; },
     on(f) { this.subs.add(f); return () => this.subs.delete(f); },
     emit() { for (const f of this.subs) f(); },
@@ -172,7 +197,10 @@
       return this.loading;
     },
     putMem(m, fresh) {
-      if (fresh && !this.mems.has(m.id)) this.born.set(m.id, performance.now());
+      const old = this.mems.get(m.id);
+      if (fresh && !old) this.born.set(m.id, performance.now());
+      // Nasceu agora, ou a Capri acabou de lembrar disso: a bolinha solta faíscas no grafo.
+      if (fresh && (!old || (m.recall_count || 0) > (old.recall_count || 0))) this.sparks.add(m.id);
       this.mems.set(m.id, m);
       if (m.updated_at > this.lastMem) this.lastMem = m.updated_at;
     },
@@ -203,6 +231,26 @@
       const before = this.links.size;
       this.links = new Map(l.map((x) => [x.id, x]));
       if (changed || before !== this.links.size) this.emit();
+    },
+    takeSparks() { const s = [...this.sparks]; this.sparks.clear(); return s; },
+    topics() {
+      const by = new Map();
+      for (const m of this.mems.values()) {
+        if (!m.topic) continue;
+        const key = norm(m.topic);
+        let t = by.get(key);
+        if (!t) by.set(key, (t = { topic: m.topic, key, mems: [], levels: [0, 0, 0, 0, 0, 0], cats: new Map(), updated: "" }));
+        t.mems.push(m);
+        t.levels[m.level || 0]++;
+        t.cats.set(m.category, (t.cats.get(m.category) || 0) + 1);
+        if (m.updated_at > t.updated) t.updated = m.updated_at;
+      }
+      for (const t of by.values()) {
+        t.cat = [...t.cats].sort((a, b) => b[1] - a[1])[0][0];
+        t.top = t.levels.reduce((a, n, i) => (n ? i : a), 0);
+        t.mems.sort((a, b) => (a.level || 0) - (b.level || 0) || a.created_at.localeCompare(b.created_at));
+      }
+      return [...by.values()].sort((a, b) => b.mems.length - a.mems.length || a.topic.localeCompare(b.topic, "pt-BR"));
     },
     neighbors(id) {
       const out = [];
@@ -258,18 +306,51 @@
     n.vx -= dx * f; n.vy -= dy * f;
   }
   // Bolinhas pequenas; os centros (categorias e memórias muito ligadas) maiores, como os MOCs do Obsidian.
-  const radius = (n) => (n.kind === "hub" ? 4.6 + Math.min(9, Math.sqrt(n.deg) * 0.75) : 1.5 + n.imp * 0.32 + Math.min(4.5, Math.sqrt(n.deg) * 0.55));
+  // O conhecimento mais avançado fica um pouco maior.
+  const radius = (n) => (n.kind === "hub" ? 4.8 + Math.min(10, Math.sqrt(n.deg) * 0.8) : 1.5 + n.imp * 0.32 + (n.level ? n.level * 0.24 : 0) + Math.min(4.5, Math.sqrt(n.deg) * 0.55));
   const rgb = (hex) => { const v = parseInt(hex.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
   const CAT_RGB = new Map(CATS.map((c) => [c.id, rgb(c.color)]));
-  const MONO = [212, 212, 216];
+  const MONO = [212, 212, 216], VIOLET_RGB = [139, 92, 246];
+  const lighten = (c, f) => [Math.round(c[0] + (255 - c[0]) * f), Math.round(c[1] + (255 - c[1]) * f), Math.round(c[2] + (255 - c[2]) * f)];
+  const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+  const TRAIL = new Set(["aprofunda", "base para", "mesmo assunto"]);
+  const TAU = Math.PI * 2;
+
+  // Um brilho redondo por cor, desenhado uma vez e carimbado em cada bolinha, faísca e nuvem.
+  const SPRITES = new Map();
+  function glow(c) {
+    const key = c.join(",");
+    let s = SPRITES.get(key);
+    if (!s) {
+      s = document.createElement("canvas"); s.width = s.height = 64;
+      const g = s.getContext("2d"), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, `rgba(${key},1)`); gr.addColorStop(0.16, `rgba(${key},0.55)`); gr.addColorStop(0.45, `rgba(${key},0.14)`); gr.addColorStop(1, `rgba(${key},0)`);
+      g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+      SPRITES.set(key, s);
+    }
+    return s;
+  }
+  // Céu de fundo: três camadas de estrelas que andam devagar com a câmera e piscam. Quanto maior o cérebro, mais estrelas.
+  function makeStars() {
+    let seed = 3;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647), out = [];
+    for (let i = 0; i < 1100; i++) {
+      const tint = rnd();
+      out.push({ x: rnd(), y: rnd(), d: [0.012, 0.035, 0.07][i % 3], r: rnd() < 0.9 ? 1 : 1.7, a: 0.12 + rnd() * 0.5, ph: rnd() * TAU, sp: 0.0005 + rnd() * 0.0022,
+        c: tint < 0.14 ? "#fde68a" : tint < 0.34 ? "#c4b5fd" : tint < 0.5 ? "#a5f3fc" : "#ffffff" });
+    }
+    return out;
+  }
 
   class Graph {
     constructor(canvas, opt = {}) {
       this.c = canvas; this.ctx = canvas.getContext("2d"); this.demo = !!opt.demo; this.opt = opt;
-      this.nodes = []; this.byId = new Map(); this.edges = []; this.near = new Map();
+      this.nodes = []; this.byId = new Map(); this.edges = []; this.near = new Map(); this.adj = new Map();
       this.cam = { x: 0, y: 0, k: 1, r: 0 }; this.alpha = 1; this.target = this.demo ? 0.02 : 0; this.dirty = true;
       this.hover = null; this.selected = null; this.matches = null; this.fitted = false; this.anim = null; this.ptrs = new Map();
       this.colors = opt.colors !== false; this.caption = opt.caption || null; this.cloud = 100; this.off = { x: 0, y: 0 };
+      this.mode = opt.mode || "web"; this.g = 0; this.stars = makeStars(); this.pulses = []; this.pAcc = 0; this.clouds = [];
+      this.frameNo = 0; this.lastDraw = 0; this.lastT = 0; this.effects = !REDUCED; this.wave = null; this.lay = null;
       this.frame = this.frame.bind(this);
       this.ro = new ResizeObserver(() => this.resize()); this.ro.observe(canvas);
       this.bind(); this.resize();
@@ -283,22 +364,18 @@
       this.nebula = this.makeNebula();
       this.dirty = true;
     }
-    // A névoa do fundo: manchas violeta e verde-água bem fracas e poeira de estrelas, desenhadas uma vez por tamanho de tela.
+    // A névoa do fundo: manchas violeta e verde-água bem fracas, desenhadas uma vez por tamanho de tela.
     makeNebula() {
       const W = this.W, H = this.H, cv = document.createElement("canvas");
       cv.width = Math.max(1, Math.round(W)); cv.height = Math.max(1, Math.round(H));
       const g = cv.getContext("2d");
       let seed = 7;
       const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-      const blobs = [[0.18, 0.3, "139,92,246", 0.10], [0.78, 0.22, "45,212,191", 0.06], [0.62, 0.78, "139,92,246", 0.08], [0.3, 0.82, "45,212,191", 0.05], [0.5, 0.5, "99,102,241", 0.05]];
+      const blobs = [[0.18, 0.3, "139,92,246", 0.11], [0.78, 0.22, "45,212,191", 0.065], [0.62, 0.78, "139,92,246", 0.09], [0.3, 0.82, "45,212,191", 0.05], [0.5, 0.5, "99,102,241", 0.06], [0.88, 0.62, "236,72,153", 0.035]];
       for (const [x, y, c, a] of blobs) {
         const R = Math.max(W, H) * (0.35 + rnd() * 0.2), gr = g.createRadialGradient(x * W, y * H, 0, x * W, y * H, R);
         gr.addColorStop(0, `rgba(${c},${a})`); gr.addColorStop(1, `rgba(${c},0)`);
         g.fillStyle = gr; g.fillRect(0, 0, W, H);
-      }
-      for (let i = 0; i < (W * H) / 2600; i++) {
-        g.fillStyle = `rgba(255,255,255,${0.04 + rnd() * 0.12})`;
-        g.fillRect(rnd() * W, rnd() * H, rnd() < 0.9 ? 1 : 1.6, rnd() < 0.9 ? 1 : 1.6);
       }
       return cv;
     }
@@ -307,10 +384,11 @@
       const spread = Math.sqrt(nodes.length + 1) * 14;
       for (const n of nodes) {
         const o = old.get(n.id);
-        if (o) { Object.assign(o, { label: n.label, kind: n.kind, cat: n.cat, imp: n.imp, deg: n.deg, born: n.born || o.born }); by.set(n.id, o); continue; }
+        if (o) { Object.assign(o, { label: n.label, kind: n.kind, cat: n.cat, imp: n.imp, deg: n.deg, level: n.level || 0, know: !!n.know, born: n.born || o.born }); by.set(n.id, o); continue; }
         const near = n.near && (old.get(n.near) || by.get(n.near)), hub = near || old.get("hub:" + n.cat) || by.get("hub:" + n.cat);
-        const a = Math.random() * Math.PI * 2, d = 6 + Math.random() * (first ? spread : 24);
+        const a = Math.random() * TAU, d = 6 + Math.random() * (first ? spread : 24);
         n.x = (hub && !first ? hub.x : 0) + Math.cos(a) * d; n.y = (hub && !first ? hub.y : 0) + Math.sin(a) * d; n.vx = n.vy = 0;
+        n.level = n.level || 0; n.know = !!n.know;
         by.set(n.id, n);
       }
       this.byId = by; this.nodes = [...by.values()];
@@ -319,18 +397,34 @@
       for (const e of edges) {
         const a = by.get(e.a), b = by.get(e.b);
         if (!a || !b || a === b) continue;
-        this.edges.push({ a, b, hub: !!e.hub });
+        this.edges.push({ a, b, hub: !!e.hub, trail: !!e.trail });
         count.set(a, (count.get(a) || 0) + 1); count.set(b, (count.get(b) || 0) + 1);
       }
-      this.near = new Map();
+      this.near = new Map(); this.adj = new Map();
       for (const e of this.edges) {
-        const ca = count.get(e.a), cb = count.get(e.b);
-        e.str = 1 / Math.min(ca, cb); e.bias = ca / (ca + cb); e.len = e.hub ? 26 : 34;
-        if (!this.near.has(e.a)) this.near.set(e.a, new Set());
-        if (!this.near.has(e.b)) this.near.set(e.b, new Set());
-        this.near.get(e.a).add(e.b); this.near.get(e.b).add(e.a);
+        const ca = count.get(e.a), cb = count.get(e.b), h = hash(e.a.id + "|" + e.b.id);
+        e.str = 1 / Math.min(ca, cb); e.bias = ca / (ca + cb); e.len = e.hub ? 26 : e.trail ? 30 : 34;
+        // As linhas fazem uma curva suave, para um lado ou para o outro, como fios de verdade.
+        e.bend = e.hub ? 0.04 : (h & 1 ? 1 : -1) * (0.07 + (h % 9) * 0.011);
+        for (const [p, q] of [[e.a, e.b], [e.b, e.a]]) {
+          if (!this.near.has(p)) this.near.set(p, new Set());
+          this.near.get(p).add(q);
+          if (!this.adj.has(p)) this.adj.set(p, []);
+          this.adj.get(p).push(e);
+        }
       }
-      for (const n of this.nodes) { n.w = n.kind === "hub" ? 2.5 : 1; n.r = radius(n); n.lone = !count.get(n); }
+      let mems = 0, personal = 0, knowledge = 0;
+      for (const n of this.nodes) {
+        n.w = n.kind === "hub" ? 2.5 : 1; n.r = radius(n); n.lone = !count.get(n);
+        n.ring = n.kind === "hub" ? -1 : n.know ? Math.max(1, n.level || 1) : 0;
+        n.seed = hash(n.id) % 1000 / 1000;
+        if (n.kind !== "hub") { mems++; if (n.know) knowledge++; else personal++; }
+      }
+      // Quanto maior o cérebro, mais forte o brilho, as nuvens e as faíscas.
+      this.g = growthOf(this.opt.size ? this.opt.size() : mems);
+      // Lembranças de um lado, conhecimento do outro: dois hemisférios, quando há dos dois.
+      this.hemis = personal >= 3 && knowledge >= 3 ? Math.sqrt(mems) * 5.2 : 0;
+      this.layout(mems);
       // Bem pouca coisa: linhas mais visíveis. Uma rede enorme: mais finas e transparentes, como nos modelos.
       this.density = Math.max(0.55, Math.min(1.5, 30 / Math.sqrt(this.edges.length + 1)));
       if (this.selected && !by.has(this.selected.id)) this.selected = null;
@@ -338,32 +432,75 @@
       this.alpha = Math.max(this.alpha, reheat == null ? 0.3 : reheat);
       this.dirty = true;
     }
+    // Vista em níveis: o que ela sabe de você no meio; o conhecimento em anéis, do básico (perto) ao especialista (longe),
+    // cada área numa fatia do círculo.
+    layout(mems) {
+      const pc = [], kc = [];
+      for (const c of CATS) {
+        if (!this.nodes.some((n) => n.kind !== "hub" && n.cat === c.id)) continue;
+        (this.nodes.some((n) => n.kind !== "hub" && n.cat === c.id && n.know) ? kc : pc).push(c.id);
+      }
+      const base = Math.max(46, Math.sqrt(mems + 1) * 7.5);
+      const R = [base * 0.95, base * 1.8, base * 2.45, base * 3.1, base * 3.75, base * 4.4, base * 5.15];
+      const at = (list, cat) => { const i = Math.max(0, list.indexOf(cat)); return ((i + 0.5) / Math.max(1, list.length)) * TAU - Math.PI / 2; };
+      this.lay = { base, R, pc, kc,
+        ang: (n) => (n.know || (n.kind === "hub" && kc.includes(n.cat)) ? at(kc, n.cat) : at(pc, n.cat)),
+        hw: (n) => (Math.PI / Math.max(1, n.ring === 0 ? pc.length : kc.length)) * 0.86 };
+    }
+    setMode(mode) {
+      if (mode === this.mode) return;
+      this.mode = mode; this.alpha = 1; this.fitted = 1; this.touched = false; this.dirty = true;
+      if (mode === "levels") this.fitAll(900);
+    }
     tick() {
-      const ns = this.nodes, a = this.alpha;
+      const ns = this.nodes, a = this.alpha, levels = this.mode === "levels";
       for (const e of this.edges) {
+        if (levels && e.hub) continue;
         const p = e.a, q = e.b;
         let dx = q.x + q.vx - p.x - p.vx, dy = q.y + q.vy - p.y - p.vy, l = Math.sqrt(dx * dx + dy * dy) || 1e-6;
-        l = ((l - e.len) / l) * a * e.str * (e.hub ? 0.8 : 0.6);
+        l = ((l - e.len) / l) * a * e.str * (e.hub ? 0.8 : 0.6) * (levels ? (e.trail ? 0.35 : 0.12) : 1);
         dx *= l; dy *= l;
         q.vx -= dx * e.bias; q.vy -= dy * e.bias; p.vx += dx * (1 - e.bias); p.vy += dy * (1 - e.bias);
       }
-      const root = tree(ns), k = 26 * a;
+      const root = tree(ns), k = (levels ? 16 : 26) * a;
       for (const n of ns) repel(root, n, k);
-      // O núcleo fica redondo como uma esfera; quem não tem nenhuma ligação vai para um anel em volta, como no Obsidian.
       let far = 0, linked = 0;
       for (const n of ns) if (!n.lone) { const d = n.x * n.x + n.y * n.y; if (d > far) far = d; linked++; }
       this.cloud = linked ? Math.sqrt(far) : Math.sqrt(ns.length + 1) * 14;
-      const ring = this.cloud * 1.14 + 26, g = 0.07 * a;
+      if (levels) this.placeLevels();
+      else {
+        // O núcleo fica redondo como uma esfera (ou dois hemisférios); quem não tem nenhuma ligação vai para um anel em volta.
+        const ring = this.cloud * 1.14 + 26, g = 0.07 * a, side = this.hemis;
+        for (const n of ns) {
+          if (n.lone) {
+            const r = Math.sqrt(n.x * n.x + n.y * n.y) || 1, f = ((ring - r) / r) * 0.06;
+            n.vx += n.x * f; n.vy += n.y * f;
+          } else {
+            // Tela deitada: um ao lado do outro; tela em pé (celular): um em cima do outro.
+            const c0 = side ? (n.know || (n.kind === "hub" && this.lay.kc.includes(n.cat)) ? side : -side) : 0, tall = this.H > this.W * 1.15;
+            n.vx -= (n.x - (tall ? 0 : c0)) * g; n.vy -= (n.y - (tall ? c0 : 0)) * g;
+          }
+        }
+      }
       for (const n of ns) {
-        if (n.lone) {
-          const r = Math.sqrt(n.x * n.x + n.y * n.y) || 1, f = ((ring - r) / r) * 0.06;
-          n.vx += n.x * f; n.vy += n.y * f;
-        } else { n.vx -= n.x * g; n.vy -= n.y * g; }
         if (n.fx != null) { n.x = n.fx; n.y = n.fy; n.vx = n.vy = 0; continue; }
         n.vx *= 0.6; n.vy *= 0.6; n.x += n.vx; n.y += n.vy;
         if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) { n.x = Math.random() * 20 - 10; n.y = Math.random() * 20 - 10; n.vx = n.vy = 0; }
       }
       this.alpha += (this.target - this.alpha) * 0.0228;
+    }
+    placeLevels() {
+      const L = this.lay;
+      for (const n of this.nodes) {
+        const hub = n.kind === "hub", ring = hub ? (L.kc.includes(n.cat) ? 6 : 0) : n.ring, R = L.R[ring], th = L.ang(n), hw = hub ? 0 : L.hw(n);
+        const cr = Math.hypot(n.x, n.y) || 1;
+        let d = Math.atan2(n.y, n.x) - th;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        const t = th + Math.max(-hw, Math.min(hw, d));
+        const r = hub ? R : ring === 0 ? Math.min(cr, R * 0.92) : Math.max(R - L.base * 0.24, Math.min(R + L.base * 0.24, cr));
+        const s = hub ? 0.2 : 0.09;
+        n.vx += (Math.cos(t) * r - n.x) * s; n.vy += (Math.sin(t) * r - n.y) * s;
+      }
     }
     lit() {
       const act = this.hover || this.selected;
@@ -388,6 +525,13 @@
       }
       return best;
     }
+    fitAll(ms) {
+      if (this.mode === "levels" && this.lay) {
+        // Sobra espaço para a barra de cima e as etiquetas de baixo.
+        const R = this.lay.R[this.lay.kc.length ? 6 : 0] + 50, k = Math.max(0.05, Math.min(2.8, Math.min(this.W - 40, this.H - 150) / (R * 2)));
+        this.anim = { from: { ...this.cam }, to: { x: 0, y: 0, k, r: this.cam.r }, t0: performance.now(), ms };
+      } else this.fit(null, ms);
+    }
     fit(ids, ms = 650) {
       if (ids && ids.length) this.touched = true;
       const list = ids && ids.length ? ids.map((id) => this.byId.get(id)).filter(Boolean) : this.nodes;
@@ -397,12 +541,36 @@
       const pad = 60, k = Math.max(0.1, Math.min(list.length === 1 ? 3.4 : 2.8, Math.min(this.W / (x1 - x0 + pad * 2), this.H / (y1 - y0 + pad * 2))));
       this.anim = { from: { ...this.cam }, to: { x: (x0 + x1) / 2, y: (y0 + y1) / 2, k, r: this.cam.r }, t0: performance.now(), ms };
     }
+    // Uma faísca correndo por uma ligação, como uma sinapse.
+    spark(e, from, bright) {
+      if (this.pulses.length > 120) return;
+      this.pulses.push({ e, rev: from === e.b, t0: performance.now(), dur: 700 + Math.random() * 900 + (bright ? 0 : 500), bright: bright ? 1 : 0 });
+    }
+    // Quando ela lembra de algo (ou aprende algo novo), a bolinha acende e manda faíscas para as vizinhas.
+    fire(id) {
+      const n = this.byId.get(id);
+      if (!n) return;
+      n.flash = performance.now();
+      if (!this.effects) { this.dirty = true; return; }
+      for (const e of (this.adj.get(n) || []).slice(0, 24)) this.spark(e, n, true);
+    }
+    // Mudou de estágio: uma onda de luz sai do centro e todas as categorias faíscam.
+    celebrate() {
+      this.wave = { t0: performance.now() };
+      for (const n of this.nodes) if (n.kind === "hub" || n.r > 6.5) this.fire(n.id);
+    }
     frame(t) {
       if (this.dead) return;
       this.raf = requestAnimationFrame(this.frame);
       if (document.hidden || !this.W) return;
       let move = false;
-      if (this.nodes.length && (this.alpha > 0.004 || this.target > 0)) { this.tick(); move = true; }
+      if (this.nodes.length && (this.alpha > 0.004 || this.target > 0)) {
+        // Num PC rápido, vários passos da simulação por quadro: a rede se arruma logo.
+        const until = performance.now() + 7;
+        let steps = 0;
+        do { this.tick(); steps++; } while (steps < 4 && this.alpha > 0.03 && !this.demo && performance.now() < until);
+        move = true;
+      }
       if (this.demo) {
         if (this.opt.onFrame) this.opt.onFrame(t);
         if (!this.hover) this.cam.r += 0.00045;
@@ -419,7 +587,7 @@
         if (p >= 1) this.anim = null;
         move = true;
       }
-      if (this.fitted === 1 && !this.touched && this.alpha < 0.02 && !this.demo) { this.fitted = 2; this.fit(null, 700); }
+      if (this.fitted === 1 && !this.touched && this.alpha < 0.02 && !this.demo) { this.fitted = 2; this.fitAll(700); }
       if (!this.fitted && this.nodes.length && (this.alpha < 0.12 || this.demo)) {
         this.fitted = 1;
         if (this.demo) {
@@ -427,110 +595,286 @@
           this.cam.k = Math.min(1.6, (Math.min(this.W, this.H) * 0.44) / R);
           // Numa tela larga o título fica à esquerda, então a esfera flutua um pouco para a direita.
           this.off = this.W > 720 ? { x: this.W * 0.21, y: 0 } : { x: 0, y: -this.H * 0.17 };
-        } else if (!this.touched) this.fit(null, 900);
+        } else if (!this.touched) this.fitAll(900);
       }
-      const glowing = this.nodes.some((n) => n.born && t - n.born < 4500);
-      if (move || glowing || this.dirty) { this.draw(t); this.dirty = false; }
+      // Parado, o céu continua vivo (estrelas piscando, faíscas), mas a uns 30 quadros por segundo para poupar o PC.
+      const busy = move || this.dirty || this.pulses.length || this.wave || this.nodes.some((n) => (n.born && t - n.born < 3000) || (n.flash && t - n.flash < 1600));
+      if (busy || (this.effects && this.nodes.length && t - this.lastDraw > (this.slow ? 80 : 33))) {
+        const t0 = performance.now();
+        this.draw(t); this.lastDraw = t; this.dirty = false;
+        // PC mais fraco: menos brilho e menos quadros parados, para não pesar.
+        this.cost = (this.cost || 0) * 0.9 + (performance.now() - t0) * 0.1;
+        this.slow = this.cost > 20;
+      }
+    }
+    drawStars(t) {
+      const ctx = this.ctx, W = this.W * 1.2, H = this.H * 1.2, n = Math.floor((120 + this.g * 680) * (this.slow ? 0.5 : 1)), px = this.cam.x * this.cam.k, py = this.cam.y * this.cam.k;
+      for (let i = 0; i < n; i++) {
+        const s = this.stars[i];
+        let x = (s.x * W - px * s.d) % W, y = (s.y * H - py * s.d) % H;
+        if (x < 0) x += W;
+        if (y < 0) y += H;
+        ctx.globalAlpha = s.a * (this.effects ? 0.55 + 0.45 * Math.sin(t * s.sp + s.ph) : 0.8);
+        ctx.fillStyle = s.c;
+        ctx.fillRect(x - this.W * 0.1, y - this.H * 0.1, s.r, s.r);
+      }
+      ctx.globalAlpha = 1;
+    }
+    // O centro e o tamanho de cada categoria, para pintar a nuvem colorida atrás dela.
+    measureClouds() {
+      const acc = new Map();
+      for (const n of this.nodes) {
+        if (n.lone) continue;
+        let s = acc.get(n.cat);
+        if (!s) acc.set(n.cat, (s = { x: 0, y: 0, xx: 0, yy: 0, n: 0 }));
+        s.x += n.x; s.y += n.y; s.xx += n.x * n.x; s.yy += n.y * n.y; s.n++;
+      }
+      this.clouds = [...acc].map(([cat, s]) => {
+        const x = s.x / s.n, y = s.y / s.n;
+        return { cat, x, y, r: Math.sqrt(Math.max(16, s.xx / s.n - x * x + s.yy / s.n - y * y)), n: s.n };
+      });
+    }
+    curve(e) {
+      const a = e.a, b = e.b, bend = this.edges.length > 1800 ? 0 : this.mode === "levels" ? e.bend * 0.5 : e.bend;
+      return { cx: (a.x + b.x) / 2 - (b.y - a.y) * bend, cy: (a.y + b.y) / 2 + (b.x - a.x) * bend };
     }
     draw(t) {
-      const ctx = this.ctx, d = this.dpr, { k, r } = this.cam, W = this.W, H = this.H, cs = Math.cos(r), sn = Math.sin(r);
+      const ctx = this.ctx, d = this.dpr, { k, r } = this.cam, W = this.W, H = this.H, cs = Math.cos(r), sn = Math.sin(r), G = this.g;
+      const dt = Math.min(80, t - (this.lastT || t)), levels = this.mode === "levels";
+      this.lastT = t;
       ctx.setTransform(d, 0, 0, d, 0, 0);
       ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = "#0b0b0f"; ctx.fillRect(0, 0, W, H);
-      if (this.nebula) ctx.drawImage(this.nebula, 0, 0, W, H);
+      ctx.fillStyle = "#08080c"; ctx.fillRect(0, 0, W, H);
+      if (this.nebula) { ctx.globalAlpha = Math.min(1, 0.75 + G * 0.5); ctx.drawImage(this.nebula, 0, 0, W, H); ctx.globalAlpha = 1; }
+      this.drawStars(t);
       const ma = d * k * cs, mb = d * k * sn, mc = -d * k * sn, md = d * k * cs;
       ctx.setTransform(ma, mb, mc, md, d * (W / 2 + this.off.x) - (ma * this.cam.x + mc * this.cam.y), d * (H / 2 + this.off.y) - (mb * this.cam.x + md * this.cam.y));
       const lit = this.lit(), act = this.hover || this.selected, dim = !!lit, color = (n) => (this.colors ? CAT_RGB.get(n.cat) || MONO : MONO);
 
-      // As linhas: finas, na cor da bolinha de onde saem, somando brilho onde são muitas.
+      // As nuvens de cada categoria: quase nada no começo, nebulosas coloridas quando o cérebro cresce.
+      // Pintadas numa tela pequena e esticadas: são só névoa, e assim quase não custam nada.
+      if (this.frameNo++ % 12 === 0 || !this.clouds.length) this.measureClouds();
       ctx.globalCompositeOperation = "lighter";
+      if (this.clouds.length) {
+        const q = 4, cw = Math.ceil(W / q), ch = Math.ceil(H / q);
+        if (!this.cloudCv) this.cloudCv = document.createElement("canvas");
+        const cv = this.cloudCv;
+        if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
+        const g2 = cv.getContext("2d");
+        g2.setTransform(1, 0, 0, 1, 0, 0); g2.clearRect(0, 0, cw, ch); g2.globalCompositeOperation = "lighter";
+        g2.setTransform(ma / d / q, mb / d / q, mc / d / q, md / d / q, (W / 2 + this.off.x) / q - ((ma * this.cam.x + mc * this.cam.y) / d) / q, (H / 2 + this.off.y) / q - ((mb * this.cam.x + md * this.cam.y) / d) / q);
+        for (const cl of this.clouds) {
+          if (cl.n < 3) continue;
+          const c = this.colors ? CAT_RGB.get(cl.cat) || MONO : VIOLET_RGB, a = (0.03 + 0.15 * G) * Math.min(1, cl.n / 14) * (dim ? 0.35 : 1);
+          const R = cl.r * 1.75 + 28, gr = g2.createRadialGradient(cl.x, cl.y, 0, cl.x, cl.y, R);
+          gr.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},${a})`); gr.addColorStop(0.5, `rgba(${c[0]},${c[1]},${c[2]},${a * 0.42})`); gr.addColorStop(1, `rgba(${c[0]},${c[1]},${c[2]},0)`);
+          g2.fillStyle = gr; g2.beginPath(); g2.arc(cl.x, cl.y, R, 0, TAU); g2.fill();
+        }
+        ctx.setTransform(d, 0, 0, d, 0, 0);
+        ctx.drawImage(cv, 0, 0, W, H);
+        ctx.setTransform(ma, mb, mc, md, d * (W / 2 + this.off.x) - (ma * this.cam.x + mc * this.cam.y), d * (H / 2 + this.off.y) - (mb * this.cam.x + md * this.cam.y));
+      }
+
+      // Na vista em níveis: os anéis do básico ao especialista e o núcleo com o que ela sabe de vocês.
+      if (levels && this.lay) {
+        const L = this.lay;
+        ctx.globalCompositeOperation = "source-over";
+        if (L.pc.length) {
+          const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, L.R[0]);
+          gr.addColorStop(0, "rgba(244,114,182,0.10)"); gr.addColorStop(1, "rgba(244,114,182,0.02)");
+          ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, L.R[0], 0, TAU); ctx.fill();
+        }
+        ctx.lineWidth = 1 / k; ctx.setLineDash([4 / k, 6 / k]);
+        for (let i = 1; i <= 5; i++) {
+          ctx.strokeStyle = `rgba(${rgb(LEVEL_COLORS[i]).join(",")},${dim ? 0.12 : 0.28})`;
+          ctx.beginPath(); ctx.arc(0, 0, L.R[i], 0, TAU); ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.globalCompositeOperation = "lighter";
+      }
+
+      // As linhas: curvas finas na cor da bolinha de onde saem, somando brilho onde são muitas. As trilhas de um assunto
+      // (do básico ao avançado) mais fortes.
       const groups = new Map();
       for (const e of this.edges) {
         if (act && (e.a === act || e.b === act)) continue;
-        const key = this.colors ? (e.hub ? e.b.cat : e.a.cat) : "m";
+        if (levels && e.hub) continue;
+        const key = (this.colors ? (e.hub ? e.b.cat : e.a.cat) : "m") + (e.trail ? "|t" : "");
         let list = groups.get(key);
         if (!list) groups.set(key, (list = []));
         list.push(e);
       }
-      const base = (dim ? 0.05 : 0.3) * this.density;
+      const base = (dim ? 0.05 : 0.3) * this.density * (levels ? 0.6 : 1);
       for (const [key, list] of groups) {
-        const c = this.colors ? CAT_RGB.get(key) || MONO : [170, 170, 190];
+        const trail = key.endsWith("|t"), cat = trail ? key.slice(0, -2) : key, c = this.colors ? CAT_RGB.get(cat) || MONO : [170, 170, 190];
         ctx.beginPath();
-        for (const e of list) { ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(e.b.x, e.b.y); }
-        ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${Math.min(0.6, base)})`;
-        ctx.lineWidth = 0.85 / k;
+        for (const e of list) { const q = this.curve(e); ctx.moveTo(e.a.x, e.a.y); ctx.quadraticCurveTo(q.cx, q.cy, e.b.x, e.b.y); }
+        ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${Math.min(trail ? 0.85 : 0.6, base * (trail ? 2.3 : 1))})`;
+        ctx.lineWidth = (trail ? 1.5 : 0.85) / k;
         ctx.stroke();
+      }
+
+      // As faíscas: nascem sozinhas de vez em quando (mais quanto maior o cérebro) e em rajada quando ela lembra de algo.
+      if (this.effects && this.edges.length) {
+        this.pAcc += (dt / 1000) * (0.6 + G * 20) * (this.slow ? 0.4 : 1);
+        while (this.pAcc >= 1) {
+          this.pAcc -= 1;
+          const e = this.edges[Math.floor(Math.random() * this.edges.length)];
+          if (!e.hub || Math.random() < 0.25) this.spark(e, Math.random() < 0.5 ? e.a : e.b, false);
+        }
+      }
+      const now = performance.now();
+      this.pulses = this.pulses.filter((p) => now - p.t0 < p.dur && this.byId.get(p.e.a.id) === p.e.a);
+      for (const p of this.pulses) {
+        const f = (now - p.t0) / p.dur, u = p.rev ? 1 - f : f, q = this.curve(p.e), a = p.e.a, b = p.e.b;
+        const x = (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * q.cx + u * u * b.x, y = (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * q.cy + u * u * b.y;
+        const c = p.bright ? [196, 181, 253] : lighten(this.colors ? CAT_RGB.get(p.e.hub ? p.e.b.cat : p.e.a.cat) || MONO : MONO, 0.35);
+        const s = Math.min((p.bright ? 15 : 9) / k, p.bright ? 18 : 11);
+        ctx.globalAlpha = Math.sin(f * Math.PI) * (dim ? 0.4 : 0.9);
+        ctx.drawImage(glow(c), x - s / 2, y - s / 2, s, s);
+      }
+      ctx.globalAlpha = 1;
+
+      // A onda de luz quando o cérebro muda de estágio.
+      if (this.wave) {
+        const p = (now - this.wave.t0) / 2600;
+        if (p >= 1) this.wave = null;
+        else {
+          const R = (this.cloud * 1.3 + 60) * p;
+          ctx.lineWidth = (10 * (1 - p) + 1) / k;
+          ctx.strokeStyle = `rgba(167,139,250,${0.6 * (1 - p)})`;
+          ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.stroke();
+        }
       }
       ctx.globalCompositeOperation = "source-over";
       if (act) {
         ctx.beginPath();
-        for (const e of this.edges) if (e.a === act || e.b === act) { ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(e.b.x, e.b.y); }
+        for (const e of this.edges) if (e.a === act || e.b === act) { const q = this.curve(e); ctx.moveTo(e.a.x, e.a.y); ctx.quadraticCurveTo(q.cx, q.cy, e.b.x, e.b.y); }
         ctx.strokeStyle = "rgba(139,92,246,0.95)"; ctx.lineWidth = Math.max(1.3 / k, 0.6); ctx.stroke();
       }
 
-      // As bolinhas.
+      // As bolinhas: primeiro o brilho (somando luz), depois o corpo, um miolo claro nas grandes e anéis no conhecimento avançado.
       const w0 = this.toWorld(-40, -40), w1 = this.toWorld(W + 40, H + 40), w2 = this.toWorld(W + 40, -40), w3 = this.toWorld(-40, H + 40);
       const vx0 = Math.min(w0.x, w1.x, w2.x, w3.x), vx1 = Math.max(w0.x, w1.x, w2.x, w3.x), vy0 = Math.min(w0.y, w1.y, w2.y, w3.y), vy1 = Math.max(w0.y, w1.y, w2.y, w3.y);
-      for (const n of this.nodes) {
-        if (n.x + n.r < vx0 || n.x - n.r > vx1 || n.y + n.r < vy0 || n.y - n.r > vy1) continue;
-        const on = lit ? lit.has(n) : true, c = color(n), big = n.kind === "hub" || n.r > 5;
-        if (n.born && t - n.born < 4500) {
-          const p = (t - n.born) / 4500;
-          ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 3 + 18 * p, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(139,92,246,${0.5 * (1 - p)})`; ctx.fill();
+      const seen = [];
+      for (const n of this.nodes) if (!(n.x + n.r * 4 < vx0 || n.x - n.r * 4 > vx1 || n.y + n.r * 4 < vy0 || n.y - n.r * 4 > vy1)) seen.push(n);
+      ctx.globalCompositeOperation = "lighter";
+      const many = seen.length > 1600;
+      for (const n of seen) {
+        const on = lit ? lit.has(n) : true, hub = n.kind === "hub";
+        const shine = hub || (!this.slow && (n.imp >= 4 || n.level >= 4 || n.r > 5 || (!many && G > 0.35 && n.imp >= 3 && n.deg > 1)));
+        if (!shine && n !== act) continue;
+        const c = color(n), breathe = hub && this.effects ? 1 + 0.08 * Math.sin(t / 900 + n.seed * TAU) : 1;
+        const s = n.r * (hub ? 7.5 : 5.2) * (0.6 + 0.55 * G) * breathe;
+        ctx.globalAlpha = (lit ? (on ? 0.75 : 0.06) : 0.42 + 0.4 * G) * (hub ? 0.9 : 0.75);
+        ctx.drawImage(glow(c), n.x - s / 2, n.y - s / 2, s, s);
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+      for (const n of seen) {
+        const on = lit ? lit.has(n) : true, c = color(n), hub = n.kind === "hub";
+        if (n.born && t - n.born < 3000) {
+          const p = (t - n.born) / 3000;
+          ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 2 + 16 * p, 0, TAU);
+          ctx.strokeStyle = `rgba(167,139,250,${0.7 * (1 - p)})`; ctx.lineWidth = 1.6 / k; ctx.stroke();
         }
-        if (big && on && !dim) {
-          ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 2.4, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},0.10)`; ctx.fill();
+        if (n.flash && t - n.flash < 1600) {
+          const p = (t - n.flash) / 1600;
+          ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 2 + 14 * p, 0, TAU);
+          ctx.strokeStyle = `rgba(237,233,254,${0.8 * (1 - p)})`; ctx.lineWidth = 1.5 / k; ctx.stroke();
         }
-        if (n === act) { ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 2.2 + 3, 0, Math.PI * 2); ctx.fillStyle = "rgba(139,92,246,0.25)"; ctx.fill(); }
-        ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-        if (!lit) ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
-        else if (n === act) ctx.fillStyle = "#c4b5fd";
-        else if (on) ctx.fillStyle = act ? "#8b5cf6" : "#c4b5fd";
-        else ctx.fillStyle = "rgba(113,113,122,0.22)";
+        if (n === act) { ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 2.2 + 3, 0, TAU); ctx.fillStyle = "rgba(139,92,246,0.25)"; ctx.fill(); }
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, TAU);
+        let body;
+        if (!lit) body = c;
+        else if (n === act) body = [196, 181, 253];
+        else if (on) body = act ? VIOLET_RGB : [196, 181, 253];
+        else body = null;
+        ctx.fillStyle = body ? `rgb(${body[0]},${body[1]},${body[2]})` : "rgba(113,113,122,0.22)";
         ctx.fill();
+        const px = n.r * k;
+        if (body && px > 2.6) {
+          const hi = lighten(body, 0.6);
+          ctx.beginPath(); ctx.arc(n.x - n.r * 0.18, n.y - n.r * 0.18, n.r * (hub ? 0.42 : 0.38), 0, TAU);
+          ctx.fillStyle = `rgba(${hi[0]},${hi[1]},${hi[2]},0.85)`; ctx.fill();
+        }
+        if (hub && px > 2) {
+          ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 2.6, 0, TAU);
+          ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${lit && !on ? 0.12 : 0.55})`; ctx.lineWidth = 1 / k; ctx.stroke();
+        }
+        // Conhecimento: um anel a partir do intermediário, dois no avançado, e uma estrelinha no especialista.
+        if (n.level >= 3 && px > 1.4 && (!lit || on)) {
+          const lc = rgb(LEVEL_COLORS[n.level]);
+          ctx.lineWidth = 0.7 / Math.max(0.6, k);
+          for (let i = 0; i < (n.level >= 4 ? 2 : 1); i++) {
+            ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 1.4 + i * 1.6, 0, TAU);
+            ctx.strokeStyle = `rgba(${lc[0]},${lc[1]},${lc[2]},${0.75 - i * 0.3})`; ctx.stroke();
+          }
+          if (n.level === 5) {
+            const s = n.r * 1.9, a = t / 2400 + n.seed * TAU;
+            ctx.beginPath();
+            for (let i = 0; i < 4; i++) { const ang = a + (i * Math.PI) / 2; ctx.moveTo(n.x, n.y); ctx.lineTo(n.x + Math.cos(ang) * s * 1.6, n.y + Math.sin(ang) * s * 1.6); }
+            ctx.strokeStyle = `rgba(${lc[0]},${lc[1]},${lc[2]},0.55)`; ctx.lineWidth = 0.6 / Math.max(0.6, k); ctx.stroke();
+          }
+        }
       }
 
-      // "Dia N" no meio da esfera, bem apagado, com quantas bolinhas e ligações.
-      const cap = this.caption && this.caption();
+      // "Dia N" no meio da esfera, bem apagado, com o estágio, quantas bolinhas e ligações.
+      const cap = this.caption && !levels && this.caption();
       if (cap) {
         ctx.setTransform(d, 0, 0, d, 0, 0);
         const o = this.toScreen({ x: 0, y: 0 }), size = Math.max(26, Math.min(86, this.cloud * k * 0.2));
         ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.globalAlpha = lit ? 0.35 : 1;
         ctx.font = `600 ${size}px "IBM Plex Sans", system-ui, sans-serif`;
-        ctx.fillStyle = "rgba(186,230,253,0.5)"; ctx.fillText(cap.big, o.x, o.y - size * 0.15);
+        ctx.fillStyle = "rgba(186,230,253,0.3)"; ctx.fillText(cap.big, o.x, o.y - size * 0.15);
         ctx.font = `400 ${Math.max(12, size * 0.24)}px "IBM Plex Sans", system-ui, sans-serif`;
-        ctx.fillStyle = "rgba(186,230,253,0.55)"; ctx.fillText(cap.small, o.x, o.y + size * 0.55);
+        ctx.fillStyle = "rgba(186,230,253,0.45)"; ctx.fillText(cap.small, o.x, o.y + size * 0.55);
+        ctx.globalAlpha = 1;
+      }
+      ctx.setTransform(d, 0, 0, d, 0, 0);
+      if (levels && this.lay) {
+        const L = this.lay;
+        ctx.textAlign = "center"; ctx.textBaseline = "bottom"; ctx.font = `600 11px "IBM Plex Sans", system-ui, sans-serif`;
+        if ("letterSpacing" in ctx) ctx.letterSpacing = "1.5px";
+        for (let i = 1; i <= 5; i++) {
+          const s = this.toScreen({ x: 0, y: -L.R[i] });
+          ctx.globalAlpha = lit ? 0.4 : 0.9; ctx.fillStyle = LEVEL_COLORS[i];
+          ctx.fillText(LEVELS[i].toUpperCase(), s.x, s.y - 3);
+        }
+        if (L.pc.length) { const s = this.toScreen({ x: 0, y: 0 }); ctx.textBaseline = "middle"; ctx.fillStyle = "rgba(251,207,232,0.6)"; ctx.fillText("VOCÊS", s.x, s.y); }
+        if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
         ctx.globalAlpha = 1;
       }
 
       // Os nomes: os centros sempre; o resto aparece apagado quando se chega perto, e acende quando ligado ao que se aponta.
-      ctx.setTransform(d, 0, 0, d, 0, 0);
-      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.lineJoin = "round";
       let shown = 0;
-      const crowd = this.nodes.length > 400 ? 1.9 : 1.15;
+      const crowd = this.nodes.length > 400 ? 2.1 : this.nodes.length > 120 ? 1.6 : 1.1;
       for (const n of this.nodes) {
-        const on = lit ? lit.has(n) : true, hub = n.kind === "hub" || n.r > 6.5;
+        const on = lit ? lit.has(n) : true, isHub = n.kind === "hub", hub = isHub || n.r > 6.5;
         let alpha;
         if (n === act || n === this.hover) alpha = 1;
         else if (lit && on) alpha = act ? 0.95 : 0.85;
         else if (hub && !this.demo) alpha = lit ? 0.3 : 0.9;
-        else if (hub && this.demo) alpha = n.kind === "hub" ? 0.85 : 0;
+        else if (hub && this.demo) alpha = isHub ? 0.7 : 0;
         else if (k > crowd && !this.demo) alpha = lit ? 0.16 : 0.42;
         else alpha = 0;
         if (alpha <= 0) continue;
         const s = this.toScreen(n);
         if (s.x < -120 || s.x > W + 120 || s.y < -30 || s.y > H + 30) continue;
         if (!hub && !on && ++shown > 350) continue;
-        const label = n.label.length > 48 ? n.label.slice(0, 46) + "…" : n.label;
-        ctx.font = hub ? `600 ${n.kind === "hub" ? 13 : 12}px "IBM Plex Sans", system-ui, sans-serif` : `400 11px "IBM Plex Sans", system-ui, sans-serif`;
+        let label = n.label.length > 48 ? n.label.slice(0, 46) + "…" : n.label;
+        if (isHub) label = label.toUpperCase();
+        ctx.font = isHub ? `600 11px "IBM Plex Sans", system-ui, sans-serif` : hub ? `600 12px "IBM Plex Sans", system-ui, sans-serif` : `400 11px "IBM Plex Sans", system-ui, sans-serif`;
+        if (isHub && "letterSpacing" in ctx) ctx.letterSpacing = "1.6px";
         ctx.globalAlpha = alpha;
-        ctx.lineWidth = 3; ctx.strokeStyle = "rgba(11,11,15,0.8)";
-        const y = s.y + n.r * k + 3;
+        ctx.lineWidth = 3; ctx.strokeStyle = "rgba(8,8,12,0.85)";
+        const y = s.y + n.r * k + (isHub ? 6 : 3);
         ctx.strokeText(label, s.x, y);
-        ctx.fillStyle = n === act ? "#ffffff" : lit && on ? "#ede9fe" : hub ? "#f4f4f5" : "#a1a1aa";
+        const hc = isHub && this.colors ? lighten(CAT_RGB.get(n.cat) || MONO, 0.55) : null;
+        ctx.fillStyle = n === act ? "#ffffff" : lit && on ? "#ede9fe" : hc ? `rgb(${hc[0]},${hc[1]},${hc[2]})` : hub ? "#f4f4f5" : "#a1a1aa";
         ctx.fillText(label, s.x, y);
+        if (isHub && "letterSpacing" in ctx) ctx.letterSpacing = "0px";
       }
       ctx.globalAlpha = 1;
     }
@@ -599,66 +943,124 @@
   }
 
   // ---------------- página inicial com o grafo de demonstração ----------------
-  // Uma rede grande como as dos modelos: centros de categoria e "temas" com leques de bolinhas, ligações cruzadas
-  // por todo lado e algumas bolinhas soltas em anel por fora.
+  // O cérebro nascendo: começa com poucas bolinhas e vai crescendo até virar uma galáxia de lembranças (de um lado)
+  // e conhecimento (do outro), com trilhas do básico ao avançado e faíscas correndo pelas ligações.
   const DEMO = {
     "sobre-voce": ["Mora perto do rio", "Faz aniversário em março", "Estuda à noite", "Café sem açúcar", "Medo de altura", "É canhoto", "Acorda tarde no domingo", "Gosta de chuva"],
     gostos: ["Manhwa de romance", "Prefere chuva a sol", "Gatos pretos", "Detesta coentro", "Pizza de calabresa", "Filmes do Ghibli", "Açaí com granola", "Modo escuro"],
     pessoas: ["Irmã mais nova", "Amigo do trabalho", "Avó do bolo de fubá", "Gata Nina", "Mãe professora", "Primo que joga junto"],
-    conversas: ["Falamos do futuro", "Discussão sobre IA", "Ideia de viagem", "Lembrança da infância", "Conversa sobre sonhos", "Noite de risadas", "Ele contou do trabalho"],
-    sentimentos: ["Ansioso com a prova", "Feliz com o projeto", "Saudade da praia", "Cansado às sextas", "Orgulho do que fez"],
-    planos: ["Prometi lembrar da consulta", "Aprender violão", "Viajar em julho", "Ler o capítulo 4 juntos", "Começar a correr"],
-    rotina: ["Treino às 7h", "Almoço ao meio-dia", "Reunião às segundas", "Dorme tarde"],
-    jogos: ["Stardew Valley", "Hollow Knight", "Roblox com o primo", "Xadrez online", "Jogo de parkour"],
-    leituras: ["Shoujo novo", "Manhwa de ação", "Parou no capítulo 12", "Personagem favorita", "Final que fez chorar"],
-    musica: ["Lo-fi para ler", "Playlist da noite", "Banda favorita", "Música que eu canto"],
-    capri: ["Fiquei com ciúmes", "Prometi cantar pra ele", "Meu apelido pra ele", "Gosto quando ele volta"],
+    conversas: ["Falamos do futuro", "Discussão sobre IA", "Ideia de viagem", "Lembrança da infância", "Conversa sobre sonhos", "Noite de risadas"],
+    sentimentos: ["Ansioso com a prova", "Feliz com o projeto", "Saudade da praia", "Orgulho do que fez"],
+    planos: ["Prometi lembrar da consulta", "Aprender violão", "Viajar em julho", "Ler o capítulo 4 juntos"],
+    jogos: ["Stardew Valley", "Hollow Knight", "Roblox com o primo", "Xadrez online"],
+    leituras: ["Shoujo novo", "Manhwa de ação", "Parou no capítulo 12", "Personagem favorita"],
+    musica: ["Lo-fi para ler", "Playlist da noite", "Música que eu canto"],
+    capri: ["Fiquei com ciúmes", "Prometi cantar pra ele", "Gosto quando ele volta"],
+  };
+  // Assuntos que ela estuda, cada um com seus degraus do básico ao especialista.
+  const DEMO_K = {
+    ciencia: { "Fotossíntese": ["O que é fotossíntese", "Clorofila e luz", "Fase clara", "Ciclo de Calvin", "Fotorrespiração"], "Sistema solar": ["Os planetas", "Órbitas", "Gravidade", "Leis de Kepler", "Mecânica celeste"] },
+    tecnologia: { "C#": ["Variáveis e tipos", "Laços e condições", "Classes e objetos", "Async e await", "Reflection e IL"], "Redes": ["O que é internet", "IP e DNS", "HTTP", "TLS", "Roteamento BGP"] },
+    matematica: { "Álgebra": ["Frações", "Equação do 1º grau", "Funções", "Derivadas", "Séries de Fourier"] },
+    idiomas: { "Inglês": ["Verbo to be", "Presente simples", "Phrasal verbs", "Conditionals", "Gírias de games"], "Japonês": ["Hiragana", "Katakana", "Partículas", "Keigo", "Kanji N2"] },
+    historia: { "Brasil": ["Descobrimento", "Independência", "Era Vargas", "Ditadura militar", "Constituição de 88"] },
+    arte: { "Desenho": ["Formas básicas", "Perspectiva", "Anatomia", "Luz e sombra", "Estilo próprio"] },
+    saude: { "Sono": ["Por que dormimos", "Ciclos do sono", "Melatonina", "Ritmo circadiano", "Sono e memória"] },
+    habilidades: { "Cozinhar": ["Arroz soltinho", "Feijão", "Molho branco", "Massa fresca", "Risoto"] },
   };
   let demoGraph = null;
   function startDemo() {
     if (demoGraph) return;
     let seed = 11;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647), pickOf = (list) => list[Math.floor(rnd() * list.length)];
-    const nodes = [], edges = [], leaves = [], cats = Object.keys(DEMO);
+    const all = [], edges = [], leaves = [], kleaves = [], cats = Object.keys(DEMO), kcats = Object.keys(DEMO_K);
     let i = 0;
-    for (const cat of cats) nodes.push({ id: "hub:" + cat, kind: "hub", cat, label: catOf(cat).label, imp: 5, deg: 40 });
-    // Temas: bolinhas grandes, cada uma com um leque de bolinhas pequenas em volta.
-    for (let t = 0; t < 22; t++) {
-      const cat = cats[t % cats.length], theme = "t" + t, fan = 10 + Math.floor(rnd() * 26);
-      nodes.push({ id: theme, kind: "m", cat, label: pickOf(DEMO[cat]), imp: 5, deg: fan });
+    for (const cat of cats) all.push({ id: "hub:" + cat, kind: "hub", cat, label: catOf(cat).label, imp: 5, deg: 40 });
+    // Lembranças: temas grandes, cada um com um leque de bolinhas pequenas em volta.
+    for (let t = 0; t < 16; t++) {
+      const cat = cats[t % cats.length], theme = "t" + t, fan = 8 + Math.floor(rnd() * 20);
+      all.push({ id: theme, kind: "m", cat, label: pickOf(DEMO[cat]), imp: 5, deg: fan });
       edges.push({ a: theme, b: "hub:" + cat, hub: true });
       for (let f = 0; f < fan; f++) {
         const id = "d" + i++, c2 = rnd() < 0.8 ? cat : pickOf(cats);
-        nodes.push({ id, kind: "m", cat: c2, label: pickOf(DEMO[c2]), imp: 1 + Math.floor(rnd() * 3), deg: 1 });
+        all.push({ id, kind: "m", cat: c2, label: pickOf(DEMO[c2]), imp: 1 + Math.floor(rnd() * 3), deg: 1, near: theme });
         edges.push({ a: id, b: theme });
         leaves.push(id);
       }
     }
-    for (let j = 0; j < 520; j++) { const a = pickOf(leaves), b = pickOf(leaves); if (a !== b) edges.push({ a, b }); }
-    for (let j = 0; j < 40; j++) { const a = "t" + Math.floor(rnd() * 22), b = "t" + Math.floor(rnd() * 22); if (a !== b) edges.push({ a, b }); }
-    for (let o = 0; o < 70; o++) { const cat = pickOf(cats); nodes.push({ id: "o" + o, kind: "m", cat, label: pickOf(DEMO[cat]), imp: 1, deg: 0 }); }
-    let next = performance.now() + 2600, extra = 0;
+    // Conhecimento: cada assunto vira uma trilha de 5 degraus, com bolinhas soltas de estudo em volta.
+    for (const cat of kcats) {
+      all.push({ id: "hub:" + cat, kind: "hub", cat, label: catOf(cat).label, imp: 5, deg: 30, know: true });
+      for (const [topic, steps] of Object.entries(DEMO_K[cat])) {
+        let prev = null;
+        steps.forEach((label, s) => {
+          const id = "k" + i++;
+          all.push({ id, kind: "m", cat, label, imp: s === 0 ? 4 : 3, deg: 6, level: s + 1, know: true, near: prev || "hub:" + cat });
+          edges.push(prev ? { a: id, b: prev, trail: true } : { a: id, b: "hub:" + cat, hub: true });
+          for (let f = 0, fan = 4 + Math.floor(rnd() * 9); f < fan; f++) {
+            const leaf = "q" + i++;
+            all.push({ id: leaf, kind: "m", cat, label: topic + ": " + pickOf(steps).toLowerCase(), imp: 1 + Math.floor(rnd() * 2), deg: 1, level: Math.min(5, s + 1 + (rnd() < 0.3 ? 1 : 0)), know: true, near: id });
+            edges.push({ a: leaf, b: id });
+            kleaves.push(leaf);
+          }
+          prev = id;
+        });
+      }
+    }
+    for (let j = 0; j < 380; j++) { const a = pickOf(leaves), b = pickOf(leaves); if (a !== b) edges.push({ a, b }); }
+    for (let j = 0; j < 260; j++) { const a = pickOf(kleaves), b = pickOf(kleaves); if (a !== b) edges.push({ a, b }); }
+    for (let j = 0; j < 40; j++) edges.push({ a: pickOf(leaves), b: pickOf(kleaves) });
+    for (let o = 0; o < 50; o++) { const cat = pickOf(cats); all.push({ id: "o" + o, kind: "m", cat, label: pickOf(DEMO[cat]), imp: 1, deg: 0 }); }
+    // Ordem de nascimento: primeiro algumas lembranças, depois tudo vai se misturando.
+    const hubs = all.filter((n) => n.kind === "hub"), rest = all.filter((n) => n.kind !== "hub");
+    const order = rest.map((n, j) => ({ n, w: (n.know ? 0.25 : 0) + rnd() + (n.id.startsWith("t") ? -0.6 : 0) + (j > rest.length * 0.9 ? 0.4 : 0) })).sort((a, b) => a.w - b.w).map((x) => x.n);
+    const shown = [];
+    let next = 0, born = 0, extra = 0;
+    const want = (cat) => shown.some((n) => n.cat === cat && n.kind !== "hub");
+    const sync = (t, heat) => {
+      const live = shown.concat(hubs.filter((h) => want(h.cat)));
+      demoGraph.setData(live, edges, heat);
+    };
     demoGraph = new Graph($("#demoCanvas"), {
       demo: true,
-      caption: () => ({ big: "Dia 26", small: `${demoGraph ? demoGraph.nodes.length : nodes.length} bolinhas · ${demoGraph ? demoGraph.edges.length : edges.length} ligações` }),
+      size: () => born,
+      caption: () => {
+        const day = 1 + Math.floor(born / 9), st = STAGES[stageOf(born)].name;
+        return { big: "Dia " + day, small: `${st} · ${born} bolinhas · ${demoGraph ? demoGraph.edges.length : 0} ligações` };
+      },
       onFrame(t) {
-        // A Capri "aprendendo": de tempos em tempos nasce uma bolinha nova, que brilha.
         if (t < next) return;
-        next = t + 2000 + rnd() * 1800;
-        const theme = "t" + Math.floor(rnd() * 22), cat = pickOf(cats), id = "n" + extra++;
-        nodes.push({ id, kind: "m", cat, label: pickOf(DEMO[cat]), imp: 3, deg: 1, born: t, near: theme });
-        edges.push({ a: id, b: theme }, { a: id, b: pickOf(leaves) });
-        if (extra > 30) { const old = "n" + (extra - 31), at = nodes.findIndex((n) => n.id === old); if (at >= 0) nodes.splice(at, 1); }
-        demoGraph.setData(nodes, edges, 0.08);
+        if (born < order.length) {
+          // Cresce cada vez mais rápido, como quem aprende mais a cada dia.
+          const batch = Math.max(1, Math.floor(born / 45));
+          for (let j = 0; j < batch && born < order.length; j++) { const n = { ...order[born++] }; n.born = t; shown.push(n); }
+          next = t + (born < 30 ? 260 : 110);
+          const before = stageOf(born - batch);
+          sync(t, 0.2);
+          if (stageOf(born) > before && born > 30) demoGraph.celebrate();
+          return;
+        }
+        // Já crescido: de tempos em tempos nasce uma bolinha nova, ou ela lembra de alguma coisa.
+        next = t + 1600 + rnd() * 1800;
+        if (rnd() < 0.5) { const pick = shown[Math.floor(rnd() * shown.length)]; demoGraph.fire(pick.id); return; }
+        const know = rnd() < 0.5, near = know ? pickOf(kleaves) : pickOf(leaves), host = shown.find((n) => n.id === near) || shown[0], id = "n" + extra++;
+        shown.push({ id, kind: "m", cat: host.cat, label: host.label, imp: 3, deg: 1, level: host.level, know: host.know, born: t, near: host.id });
+        edges.push({ a: id, b: host.id });
+        if (extra > 30) { const old = "n" + (extra - 31), at = shown.findIndex((n) => n.id === old); if (at >= 0) shown.splice(at, 1); }
+        sync(t, 0.08);
+        demoGraph.fire(id);
       },
     });
-    demoGraph.setData(nodes, edges, 1);
+    for (let j = 0; j < 8; j++) shown.push({ ...order[born++] });
+    sync(0, 1);
   }
   function stopDemo() { if (demoGraph) { demoGraph.destroy(); demoGraph = null; } }
 
   // ---------------- memória: criar e editar ----------------
   const catSelect = $("#mfCat");
-  catSelect.innerHTML = CATS.map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join("");
+  catSelect.innerHTML = `<optgroup label="Sobre vocês">${CATS.filter((c) => c.g === "p").map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join("")}</optgroup>`
+    + `<optgroup label="Conhecimento">${CATS.filter((c) => c.g === "k").map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join("")}</optgroup>`;
+  $("#mfLevel").innerHTML = `<option value="">— não é estudo</option>` + LEVELS.slice(1).map((l, i) => `<option value="${i + 1}">${i + 1} · ${l}</option>`).join("");
   let editing = null;
   function openMemory(mem) {
     editing = mem || null;
@@ -668,6 +1070,9 @@
     $("#mfCat").value = mem ? mem.category : "sobre-voce";
     $("#mfImp").value = String(mem ? mem.importance : 3);
     $("#mfTags").value = mem ? (mem.tags || []).join(", ") : "";
+    $("#mfTopic").value = mem ? mem.topic || "" : "";
+    $("#mfLevel").value = mem && mem.level ? String(mem.level) : "";
+    $("#topicList").innerHTML = Store.topics().slice(0, 500).map((t) => `<option value="${esc(t.topic)}"></option>`).join("");
     $("#mfErr").textContent = "";
     $("#memDialog").showModal();
     setTimeout(() => $("#mfTitle").focus(), 30);
@@ -681,7 +1086,13 @@
       category: $("#mfCat").value,
       importance: Number($("#mfImp").value),
       tags: [...new Set($("#mfTags").value.split(",").map((t) => t.trim().toLowerCase().slice(0, 40)).filter(Boolean))].slice(0, 12),
+      topic: $("#mfTopic").value.trim().replace(/\s+/g, " ").slice(0, 80) || null,
+      level: $("#mfLevel").value ? Number($("#mfLevel").value) : null,
     };
+    // O mesmo assunto escrito de outro jeito usa a grafia que já existe.
+    if (body.topic) { const same = Store.topics().find((t) => t.key === norm(body.topic)); if (same) body.topic = same.topic; }
+    // Estudo sem área escolhida vai para "Conhecimento geral".
+    if (body.level && catOf(body.category).g !== "k" && !editing) body.category = "conhecimento";
     if (!body.title || !body.content) { $("#mfErr").textContent = "Escreva o título e o que ela sabe."; return; }
     $("#mfSave").disabled = true;
     try {
@@ -725,13 +1136,16 @@
   function loadingState(el) { el.innerHTML = `<div class="loading">Carregando o cérebro…</div>`; }
   function failState(el, err) { el.innerHTML = `<div class="page"><div class="panel"><b>Não deu para carregar.</b><p class="muted">${esc(err.message)}</p><button class="btn" id="retry">Tentar de novo</button></div></div>`; $("#retry", el).onclick = route; }
 
+  function levelBadge(level) { return level ? `<span class="lvl" style="--lc:${LEVEL_COLORS[level]}">${level} · ${LEVELS[level]}</span>` : ""; }
+  function ladder(levels) { return `<span class="ladder">${[1, 2, 3, 4, 5].map((i) => `<i style="--lc:${LEVEL_COLORS[i]}" class="${levels[i] ? "on" : ""}" title="${LEVELS[i]}: ${levels[i]}"></i>`).join("")}</span>`; }
+
   function viewGraph(el) {
     el.classList.add("full");
     el.innerHTML = `
       <canvas class="graph" aria-label="Grafo das memórias"></canvas>
       <div class="tools">
         <label class="searchbox card"><span class="faint">⌕</span><input id="q" placeholder="Procurar no cérebro" autocomplete="off" aria-label="Procurar"></label>
-        <div class="counts card" id="counts"></div>
+        <div class="seg card" role="group" aria-label="Vista"><button data-mode="web">Constelação</button><button data-mode="levels">Níveis</button></div>
         <div class="spacer"></div>
         <div class="actions">
           <button class="btn primary" id="add"><span>＋</span><span class="lbl">Nova memória</span></button>
@@ -739,21 +1153,23 @@
           <button class="btn" id="exp" title="Baixar tudo em JSON"><span>⤓</span><span class="lbl">Exportar</span></button>
         </div>
       </div>
+      <a class="stage card" id="stage" href="#/aprendizado" title="Ver como o cérebro está crescendo"></a>
       <div class="chips" id="chips"></div>
       <aside class="side card hidden" id="side" aria-live="polite"></aside>
       <div class="empty hidden" id="empty"><div class="card"><h2>O cérebro ainda está vazio</h2><p class="muted">Conecte a Capri com uma chave e tudo que ela aprender aparece aqui como bolinhas. Ou crie a primeira memória você mesmo.</p><div class="row" style="justify-content:center"><a class="btn primary" href="#/conectar">Conectar a Capri</a><button class="btn" id="add2">Nova memória</button></div></div></div>
       <div class="tip hidden" id="tip"></div>`;
     const hiddenCats = new Set(prefs.hidden || []);
-    let showHubs = prefs.hubs !== false, colors = prefs.colors !== false, query = "", selectedId = null;
+    let showHubs = prefs.hubs !== false, colors = prefs.colors !== false, query = "", selectedId = null, mode = prefs.mode === "levels" ? "levels" : "web";
     const tip = $("#tip", el), side = $("#side", el);
     const g = new Graph($("canvas", el), {
-      colors,
+      colors, mode,
+      size: () => Store.mems.size,
       caption() {
         if (!Store.mems.size) return null;
         let first = Infinity;
         for (const m of Store.mems.values()) { const t = Date.parse(m.created_at); if (t < first) first = t; }
-        const day = Math.max(1, Math.floor((Date.now() - first) / 86400000) + 1);
-        return { big: "Dia " + day, small: `${Store.mems.size} ${Store.mems.size === 1 ? "bolinha" : "bolinhas"} · ${Store.links.size} ${Store.links.size === 1 ? "ligação" : "ligações"}` };
+        const day = Math.max(1, Math.floor((Date.now() - first) / 86400000) + 1), n = Store.mems.size;
+        return { big: "Dia " + day, small: `${STAGES[stageOf(n)].name} · ${n} ${n === 1 ? "bolinha" : "bolinhas"} · ${Store.links.size} ${Store.links.size === 1 ? "ligação" : "ligações"}` };
       },
       onSelect(n) {
         if (!n) { select(null); return; }
@@ -763,12 +1179,26 @@
       onHover(n, p) {
         if (!n || !p) { tip.classList.add("hidden"); return; }
         const m = Store.mems.get(n.id);
-        tip.innerHTML = n.kind === "hub" ? `<b>${esc(n.label)}</b>${n.deg} memórias` : `<b>${esc(n.label)}</b>${esc(catOf(n.cat).label)}${m ? " · " + stars(m.importance) : ""}`;
+        tip.innerHTML = n.kind === "hub" ? `<b>${esc(n.label)}</b>${n.deg} ${n.deg === 1 ? "memória" : "memórias"}`
+          : `<b>${esc(n.label)}</b>${esc(catOf(n.cat).label)}${m && m.topic ? " · " + esc(m.topic) : ""}${m && m.level ? `<br>${levelBadge(m.level)}` : m ? " · " + stars(m.importance) : ""}`;
         tip.style.left = Math.min(p.x + 14, el.clientWidth - 290) + "px";
         tip.style.top = p.y + 14 + "px";
         tip.classList.remove("hidden");
       },
     });
+    const segs = el.querySelectorAll(".seg button");
+    const paintSeg = () => segs.forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
+    paintSeg();
+
+    let shownStage = prefs.stage == null ? -1 : prefs.stage;
+    function stageCard() {
+      const n = Store.mems.size, i = stageOf(n), st = STAGES[i], nx = STAGES[i + 1];
+      const p = nx ? (n - st.min) / (nx.min - st.min) : 1;
+      $("#stage", el).innerHTML = `<span class="st-name">${esc(st.name)}</span><span class="st-bar"><i style="width:${Math.round(p * 100)}%"></i></span><span class="st-next">${nx ? `faltam ${nx.min - n} para ${esc(nx.name)}` : "o cérebro está completo"}</span>`;
+      // Passou de estágio desde a última vez: festa no grafo.
+      if (shownStage >= 0 && i > shownStage) { toast(`O cérebro cresceu: agora é ${i === 1 ? "um" : "uma"} ${st.name}! ✦`); setTimeout(() => g.celebrate(), 400); }
+      if (i !== shownStage) { shownStage = i; prefs.stage = i; savePrefs(); }
+    }
 
     function build(reheat) {
       const counts = new Map();
@@ -777,21 +1207,25 @@
       const keep = new Set(shown.map((m) => m.id)), deg = new Map(), edges = [];
       for (const l of Store.links.values()) {
         if (!keep.has(l.source_id) || !keep.has(l.target_id)) continue;
-        edges.push({ a: l.source_id, b: l.target_id });
+        edges.push({ a: l.source_id, b: l.target_id, trail: TRAIL.has(l.relation) });
         deg.set(l.source_id, (deg.get(l.source_id) || 0) + 1); deg.set(l.target_id, (deg.get(l.target_id) || 0) + 1);
       }
-      const nodes = shown.map((m) => ({ id: m.id, kind: "m", cat: m.category, label: m.title, imp: m.importance, deg: deg.get(m.id) || 0, born: Store.born.get(m.id) }));
+      const nodes = shown.map((m) => ({ id: m.id, kind: "m", cat: m.category, label: m.title, imp: m.importance, level: m.level || 0, know: isKnow(m), deg: deg.get(m.id) || 0, born: Store.born.get(m.id) }));
       if (showHubs) {
         const perCat = new Map();
         for (const m of shown) { perCat.set(m.category, (perCat.get(m.category) || 0) + 1); edges.push({ a: m.id, b: "hub:" + m.category, hub: true }); }
-        for (const [cat, n] of perCat) nodes.push({ id: "hub:" + cat, kind: "hub", cat, label: catOf(cat).label, imp: 5, deg: n });
+        for (const [cat, n] of perCat) nodes.push({ id: "hub:" + cat, kind: "hub", cat, label: catOf(cat).label, imp: 5, deg: n, know: catOf(cat).g === "k" });
       }
       g.setData(nodes, edges, reheat);
-      $("#counts", el).textContent = `${Store.mems.size} ${Store.mems.size === 1 ? "memória" : "memórias"} · ${Store.links.size} ${Store.links.size === 1 ? "ligação" : "ligações"}`;
+      for (const id of Store.takeSparks()) g.fire(id);
       $("#empty", el).classList.toggle("hidden", Store.mems.size > 0);
-      $("#chips", el).innerHTML = CATS.filter((c) => counts.get(c.id)).map((c) => `<button class="chip${hiddenCats.has(c.id) ? " off" : ""}" data-c="${c.id}" aria-pressed="${!hiddenCats.has(c.id)}"><i class="dot" style="background:${c.color}"></i>${esc(c.label)} <span class="n">${counts.get(c.id)}</span></button>`).join("")
+      $("#stage", el).classList.toggle("hidden", Store.mems.size === 0);
+      const chip = (c) => `<button class="chip${hiddenCats.has(c.id) ? " off" : ""}" data-c="${c.id}" aria-pressed="${!hiddenCats.has(c.id)}"><i class="dot" style="background:${c.color}"></i>${esc(c.label)} <span class="n">${counts.get(c.id)}</span></button>`;
+      const mine = CATS.filter((c) => c.g === "p" && counts.get(c.id)), know = CATS.filter((c) => c.g === "k" && counts.get(c.id));
+      $("#chips", el).innerHTML = mine.map(chip).join("") + (know.length ? `<span class="chipsep">Conhecimento</span>` + know.map(chip).join("") : "")
         + `<button class="chip hubs${showHubs ? "" : " off"}" data-c="__hubs" aria-pressed="${showHubs}">Mostrar categorias</button>`
         + `<button class="chip hubs${colors ? "" : " off"}" data-c="__colors" aria-pressed="${colors}">Cores</button>`;
+      stageCard();
       applySearch();
       if (selectedId) { if (Store.mems.has(selectedId)) renderSide(); else select(null); }
     }
@@ -799,7 +1233,7 @@
       const q = norm(query.trim());
       if (!q) { g.matches = null; g.dirty = true; return []; }
       const ids = [];
-      for (const m of Store.mems.values()) if (!hiddenCats.has(m.category) && (norm(m.title).includes(q) || norm(m.content).includes(q) || (m.tags || []).some((t) => norm(t).includes(q)))) ids.push(m.id);
+      for (const m of Store.mems.values()) if (!hiddenCats.has(m.category) && (norm(m.title).includes(q) || norm(m.content).includes(q) || norm(m.topic).includes(q) || (m.tags || []).some((t) => norm(t).includes(q)))) ids.push(m.id);
       g.matches = new Set(ids); g.dirty = true;
       return ids;
     }
@@ -814,12 +1248,14 @@
       const m = Store.mems.get(selectedId);
       if (!m) return;
       const c = catOf(m.category), nb = Store.neighbors(m.id);
+      const trail = m.topic ? (Store.topics().find((t) => t.key === norm(m.topic)) || null) : null;
       side.innerHTML = `
         <div class="head"><div class="row" style="justify-content:space-between"><span class="cat"><i style="background:${c.color}"></i>${esc(c.label)}</span><button class="btn ghost small" id="close" aria-label="Fechar">✕</button></div>
-          <h3>${esc(m.title)}</h3><div class="stars" title="Importância ${m.importance} de 5">${stars(m.importance)}</div></div>
+          <h3>${esc(m.title)}</h3><div class="row" style="gap:8px;margin-top:6px">${m.level ? levelBadge(m.level) : `<span class="stars" title="Importância ${m.importance} de 5">${stars(m.importance)}</span>`}${m.topic ? `<button class="topic" id="topicGo">${esc(m.topic)}</button>` : ""}</div></div>
         <div class="body">
           <div class="content">${esc(m.content)}</div>
           ${(m.tags || []).length ? `<div>${m.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
+          ${trail && trail.mems.length > 1 ? `<div><div class="f" style="font-size:13px;color:var(--faint);margin-bottom:8px">Trilha de ${esc(trail.topic)} · do básico ao avançado</div><ol class="trail">${trail.mems.map((x) => `<li class="${x.id === m.id ? "here" : ""}" style="--lc:${LEVEL_COLORS[x.level || 1]}"><button data-go="${x.id}"><span>${esc(x.title)}</span><small>${x.level ? LEVELS[x.level] : "sem nível"}</small></button></li>`).join("")}</ol></div>` : ""}
           <dl class="meta"><dt>Criada</dt><dd>${when(m.created_at)}</dd><dt>Mudou</dt><dd>${when(m.updated_at)}</dd><dt>Lembrada</dt><dd>${m.recall_count ? `${m.recall_count}× · ${ago(m.last_recalled_at)}` : "ainda não"}</dd><dt>Veio de</dt><dd>${esc(m.source || "—")}${m.mentions > 1 ? ` · citada ${m.mentions}×` : ""}</dd></dl>
           <div class="row"><button class="btn small" id="edit">Editar</button><button class="btn small danger" id="del">Excluir</button></div>
           <div><div class="f" style="font-size:13px;color:var(--faint);margin-bottom:8px">Ligada a ${nb.length} ${nb.length === 1 ? "memória" : "memórias"}</div>
@@ -827,13 +1263,15 @@
           <form class="stack" id="linkForm" style="gap:8px"><label class="f" for="lkTo" style="margin:0">Ligar a outra memória</label>
             <input class="input" id="lkTo" list="lkList" placeholder="Comece a digitar um título" autocomplete="off">
             <datalist id="lkList">${[...Store.mems.values()].filter((x) => x.id !== m.id).slice(0, 2000).map((x) => `<option value="${esc(x.title)}"></option>`).join("")}</datalist>
-            <input class="input" id="lkRel" placeholder="Como se ligam (ex.: irmã de, leu junto)" maxlength="60">
+            <input class="input" id="lkRel" placeholder="Como se ligam (ex.: irmã de, aprofunda, leu junto)" maxlength="60">
             <button class="btn small" type="submit">Ligar</button></form>
         </div>`;
       side.classList.remove("hidden");
       $("#close", side).onclick = () => select(null);
       $("#edit", side).onclick = () => openMemory(m);
       $("#del", side).onclick = async () => { if (await removeMemory(m)) select(null); };
+      const tg = $("#topicGo", side);
+      if (tg) tg.onclick = () => { const q = $("#q", el); q.value = query = m.topic; const ids = applySearch(); if (ids.length) g.fit(ids); };
       side.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => select(b.dataset.go, true)));
       side.querySelectorAll("[data-unlink]").forEach((b) => (b.onclick = async () => {
         try { await rest(`memory_links?id=eq.${b.dataset.unlink}`, { method: "DELETE" }); Store.links.delete(b.dataset.unlink); Store.emit(); }
@@ -854,6 +1292,7 @@
 
     $("#q", el).addEventListener("input", (e) => { query = e.target.value; const ids = applySearch(); if (ids.length && ids.length <= 40) g.fit(ids, 500); });
     $("#q", el).addEventListener("keydown", (e) => { if (e.key === "Enter") { const ids = applySearch(); if (ids.length) g.fit(ids); else if (query.trim()) toast("Nada encontrado."); } if (e.key === "Escape") { e.target.value = query = ""; applySearch(); } });
+    segs.forEach((b) => (b.onclick = () => { mode = b.dataset.mode; prefs.mode = mode; savePrefs(); paintSeg(); g.setMode(mode); }));
     $("#chips", el).addEventListener("click", (e) => {
       const b = e.target.closest(".chip");
       if (!b) return;
@@ -879,25 +1318,70 @@
     const keys = (e) => { if (e.key === "Escape" && selectedId && !document.querySelector("dialog[open]")) select(null); };
     document.addEventListener("keydown", keys);
     const off = Store.on(() => build(0.25));
-    if (Store.loaded) build(1);
+    if (Store.loaded) {
+      Store.takeSparks();
+      build(1);
+      // Veio da aba Aprendizado com um assunto: já abre procurando por ele.
+      const asked = new URLSearchParams(location.hash.split("?")[1] || "").get("q");
+      if (asked) { $("#q", el).value = query = asked; const ids = applySearch(); if (ids.length) setTimeout(() => g.fit(ids), 1400); }
+    }
     return { destroy() { off(); g.destroy(); document.removeEventListener("keydown", keys); }, select };
+  }
+
+  // ---------------- aprendizado: como o cérebro está crescendo ----------------
+  function viewLearn(el) {
+    const draw = () => {
+      const mems = [...Store.mems.values()], n = mems.length, i = stageOf(n), st = STAGES[i], nx = STAGES[i + 1];
+      const know = mems.filter(isKnow), lv = [0, 0, 0, 0, 0, 0];
+      for (const m of know) lv[m.level || 0]++;
+      const topics = Store.topics(), byCat = new Map();
+      for (const m of know) { const c = byCat.get(m.category) || { n: 0, lv: [0, 0, 0, 0, 0, 0] }; c.n++; c.lv[m.level || 0]++; byCat.set(m.category, c); }
+      let first = Infinity;
+      for (const m of mems) { const t = Date.parse(m.created_at); if (t < first) first = t; }
+      const day = n ? Math.max(1, Math.floor((Date.now() - first) / 86400000) + 1) : 0;
+      const p = nx ? (n - st.min) / (nx.min - st.min) : 1, totalLv = lv.slice(1).reduce((a, b) => a + b, 0) || 1;
+      el.innerHTML = `<div class="page">
+        <h1>Aprendizado</h1><p class="lead">Como o cérebro da Capri está crescendo: o que ela sabe de vocês e tudo que ela estuda, do básico ao especialista. Quanto mais ela aprende, mais o cérebro brilha.</p>
+        <section class="panel grow">
+          <div class="grow-top"><div><div class="faint" style="font-size:13px">${day ? "Dia " + day + " · estágio " + (i + 1) + " de " + STAGES.length : "ainda vazio"}</div><h2 class="grow-name">${esc(st.name)}</h2><p class="muted" style="margin:0">${esc(st.line)}</p></div>
+            <div class="grow-nums"><div><b>${n}</b><span>memórias</span></div><div><b>${Store.links.size}</b><span>ligações</span></div><div><b>${know.length}</b><span>conhecimentos</span></div><div><b>${topics.length}</b><span>assuntos</span></div></div></div>
+          <div class="st-bar big"><i style="width:${Math.round(p * 100)}%"></i></div>
+          <div class="faint" style="font-size:13px;margin-top:6px">${nx ? `Faltam ${nx.min - n} memórias para virar ${esc(nx.name)}.` : "Chegou ao último estágio."}</div>
+          <ol class="journey">${STAGES.map((s, j) => `<li class="${j < i ? "done" : j === i ? "here" : ""}"><i></i><b>${esc(s.name)}</b><span>${s.min ? s.min + "+" : "início"}</span></li>`).join("")}</ol>
+        </section>
+        <h2 class="sec">Do básico ao especialista</h2>
+        ${know.length ? `<div class="panel"><div class="lvbar">${[1, 2, 3, 4, 5].map((l) => lv[l] ? `<i style="flex:${lv[l]};--lc:${LEVEL_COLORS[l]}" title="${LEVELS[l]}: ${lv[l]}"></i>` : "").join("")}</div>
+          <div class="lvlegend">${[1, 2, 3, 4, 5].map((l) => `<span><i style="--lc:${LEVEL_COLORS[l]}"></i>${LEVELS[l]} <b>${lv[l]}</b> <small>${Math.round((lv[l] / totalLv) * 100)}%</small></span>`).join("")}${lv[0] ? `<span class="faint">sem nível <b>${lv[0]}</b></span>` : ""}</div></div>
+        <h2 class="sec">Áreas</h2>
+        <div class="areas">${CATS.filter((c) => c.g === "k" && byCat.get(c.id)).map((c) => { const a = byCat.get(c.id); return `<a class="area" href="#/cerebro?q=" data-cat="${c.id}" style="--cc:${c.color}"><span class="cat"><i style="background:${c.color}"></i>${esc(c.label)}</span><b>${a.n}</b>${ladder(a.lv)}</a>`; }).join("")}</div>
+        <h2 class="sec">Assuntos</h2>
+        ${topics.length ? `<div class="panel" style="padding:6px 0"><table class="topics"><tbody>${topics.slice(0, 300).map((t) => `<tr><td><a href="#/cerebro?q=${encodeURIComponent(t.topic)}" class="t">${esc(t.topic)}</a><div class="cat"><i style="background:${catOf(t.cat).color}"></i>${esc(catOf(t.cat).label)}</div></td><td>${ladder(t.levels)}</td><td class="num">${t.top ? levelBadge(t.top) : `<span class="faint">sem nível</span>`}</td><td class="num faint">${t.mems.length} · ${ago(t.updated)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">Nenhum assunto com nome ainda.</p>`}`
+        : `<div class="panel"><b>Ela ainda não guardou nenhum estudo.</b><p class="muted" style="margin:6px 0 0">Pergunte alguma coisa para a Capri ("o que é fotossíntese?", "me explica async no C#") ou ensine algo para ela. Ela guarda a explicação aqui, com o assunto e o nível, e vai subindo do básico ao avançado conforme vocês conversam. Você também pode criar um estudo em <a href="#/cerebro">Nova memória</a>, escolhendo assunto e nível.</p></div>`}
+      </div>`;
+      el.querySelectorAll(".area").forEach((a) => (a.onclick = (e) => { e.preventDefault(); prefs.hidden = CATS.filter((c) => c.id !== a.dataset.cat).map((c) => c.id); prefs.mode = "web"; savePrefs(); location.hash = "#/cerebro"; }));
+    };
+    const off = Store.on(draw);
+    if (Store.loaded) draw();
+    return { destroy: off };
   }
 
   function viewList(el) {
     el.innerHTML = `<div class="page"><h1>Memórias</h1><p class="lead">Tudo que está no cérebro, em lista. Clique numa linha para editar.</p>
-      <div class="bar"><input class="input" id="q" placeholder="Procurar" aria-label="Procurar"><select class="input" id="cat" style="flex:0 1 200px" aria-label="Categoria"><option value="">Todas as categorias</option>${CATS.map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join("")}</select>
-      <select class="input" id="sort" style="flex:0 1 190px" aria-label="Ordem"><option value="new">Mais recentes</option><option value="old">Mais antigas</option><option value="imp">Mais importantes</option><option value="rec">Mais lembradas</option><option value="abc">Título (A–Z)</option></select>
+      <div class="bar"><input class="input" id="q" placeholder="Procurar" aria-label="Procurar"><select class="input" id="cat" style="flex:0 1 200px" aria-label="Categoria"><option value="">Todas as categorias</option><option value="__p">Só sobre vocês</option><option value="__k">Só conhecimento</option>${CATS.map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join("")}</select>
+      <select class="input" id="sort" style="flex:0 1 190px" aria-label="Ordem"><option value="new">Mais recentes</option><option value="old">Mais antigas</option><option value="imp">Mais importantes</option><option value="rec">Mais lembradas</option><option value="lvl">Nível (avançado primeiro)</option><option value="top">Assunto (A–Z)</option><option value="abc">Título (A–Z)</option></select>
       <button class="btn primary" id="add">Nova memória</button><button class="btn danger hidden" id="bulk">Apagar selecionadas</button></div>
-      <div class="panel" style="padding:0;overflow:hidden"><table class="tstack"><thead><tr><th style="width:36px"><input type="checkbox" id="all" aria-label="Selecionar todas"></th><th>Memória</th><th>Categoria</th><th class="num">Importância</th><th class="num">Mudou</th></tr></thead><tbody id="rows"></tbody></table></div>
+      <div class="panel" style="padding:0;overflow:hidden"><table class="tstack"><thead><tr><th style="width:36px"><input type="checkbox" id="all" aria-label="Selecionar todas"></th><th>Memória</th><th>Categoria</th><th class="num">Nível ou importância</th><th class="num">Mudou</th></tr></thead><tbody id="rows"></tbody></table></div>
       <p class="faint" id="foot" style="font-size:13px"></p></div>`;
     const picked = new Set();
     const draw = () => {
       const q = norm($("#q", el).value.trim()), cat = $("#cat", el).value, sort = $("#sort", el).value;
-      let list = [...Store.mems.values()].filter((m) => (!cat || m.category === cat) && (!q || norm(m.title).includes(q) || norm(m.content).includes(q) || (m.tags || []).some((t) => norm(t).includes(q))));
-      const by = { new: (a, b) => b.updated_at.localeCompare(a.updated_at), old: (a, b) => a.created_at.localeCompare(b.created_at), imp: (a, b) => b.importance - a.importance || b.updated_at.localeCompare(a.updated_at), rec: (a, b) => b.recall_count - a.recall_count, abc: (a, b) => a.title.localeCompare(b.title, "pt-BR") };
+      const fits = (m) => !cat || (cat === "__k" ? isKnow(m) : cat === "__p" ? !isKnow(m) : m.category === cat);
+      let list = [...Store.mems.values()].filter((m) => fits(m) && (!q || norm(m.title).includes(q) || norm(m.content).includes(q) || norm(m.topic).includes(q) || (m.tags || []).some((t) => norm(t).includes(q))));
+      const by = { new: (a, b) => b.updated_at.localeCompare(a.updated_at), old: (a, b) => a.created_at.localeCompare(b.created_at), imp: (a, b) => b.importance - a.importance || b.updated_at.localeCompare(a.updated_at), rec: (a, b) => b.recall_count - a.recall_count,
+        lvl: (a, b) => (b.level || 0) - (a.level || 0) || b.updated_at.localeCompare(a.updated_at), top: (a, b) => (a.topic || "\uffff").localeCompare(b.topic || "\uffff", "pt-BR") || (a.level || 0) - (b.level || 0), abc: (a, b) => a.title.localeCompare(b.title, "pt-BR") };
       list.sort(by[sort]);
       const shown = list.slice(0, 600);
-      $("#rows", el).innerHTML = shown.map((m) => { const c = catOf(m.category); return `<tr data-id="${m.id}" style="cursor:pointer"><td><input type="checkbox" data-pick="${m.id}" ${picked.has(m.id) ? "checked" : ""} aria-label="Selecionar"></td><td><div class="t">${esc(m.title)}</div><div class="c">${esc(m.content)}</div></td><td><span class="cat"><i style="background:${c.color}"></i>${esc(c.label)}</span></td><td class="num stars">${stars(m.importance)}</td><td class="num faint">${ago(m.updated_at)}</td></tr>`; }).join("")
+      $("#rows", el).innerHTML = shown.map((m) => { const c = catOf(m.category); return `<tr data-id="${m.id}" style="cursor:pointer"><td><input type="checkbox" data-pick="${m.id}" ${picked.has(m.id) ? "checked" : ""} aria-label="Selecionar"></td><td><div class="t">${esc(m.title)}</div><div class="c">${esc(m.content)}</div></td><td><span class="cat"><i style="background:${c.color}"></i>${esc(c.label)}</span>${m.topic ? `<div class="faint" style="font-size:12px;margin-top:3px">${esc(m.topic)}</div>` : ""}</td><td class="num">${m.level ? levelBadge(m.level) : `<span class="stars">${stars(m.importance)}</span>`}</td><td class="num faint">${ago(m.updated_at)}</td></tr>`; }).join("")
         || `<tr><td colspan="5" class="muted" style="padding:28px;text-align:center">${Store.mems.size ? "Nada com esse filtro." : "Nenhuma memória ainda."}</td></tr>`;
       $("#foot", el).textContent = list.length > shown.length ? `Mostrando ${shown.length} de ${list.length}. Use a busca para achar o resto.` : `${list.length} ${list.length === 1 ? "memória" : "memórias"}.`;
       $("#bulk", el).classList.toggle("hidden", picked.size === 0);
@@ -977,7 +1461,7 @@
   -H "x-capri-key: cap_SUA_CHAVE" \\
   -H "Content-Type: application/json" \\
   -d '{"action":"ping"}'</pre></div>
-        <div class="panel"><b>O que ela guarda aqui</b><p class="muted" style="margin:6px 0 0">As notas que ela faz sobre você, as memórias que ela tira das conversas, as respostas do "me conhece", o resumo do que vocês leram juntos. Endereços, números de documento e senhas nunca saem do PC. Antes de responder, ela pergunta ao cérebro o que sabe sobre o assunto.</p></div>
+        <div class="panel"><b>O que ela guarda aqui</b><p class="muted" style="margin:6px 0 0">As notas que ela faz sobre você, as memórias que ela tira das conversas, as respostas do "me conhece", o resumo do que vocês leram juntos. E tudo que ela estuda: quando você pergunta ou ensina alguma coisa, ela guarda a explicação com o assunto e o nível (do básico ao especialista), e cada assunto vira uma trilha. Endereços, números de documento e senhas nunca saem do PC. Antes de responder, ela pergunta ao cérebro o que sabe sobre o assunto.</p></div>
       </div></div>`;
     $("#cp", el).onclick = () => copy(CFG.api);
     return {};
@@ -1033,7 +1517,7 @@
   });
 
   // ---------------- rotas ----------------
-  const VIEWS = { cerebro: viewGraph, memorias: viewList, chaves: viewKeys, conectar: viewConnect, conta: viewAccount };
+  const VIEWS = { cerebro: viewGraph, aprendizado: viewLearn, memorias: viewList, chaves: viewKeys, conectar: viewConnect, conta: viewAccount };
   let shownRoute = null;
   async function route() {
     const r = location.hash.replace(/^#\/?/, "").split(/[?/]/)[0];
@@ -1061,14 +1545,14 @@
     shownRoute = r;
     view.className = "view";
     who();
-    if (!Store.loaded && (r === "cerebro" || r === "memorias")) {
+    if (!Store.loaded && (r === "cerebro" || r === "memorias" || r === "aprendizado")) {
       loadingState(view);
       try { await Store.load(); } catch (err) { failState(view, err); return; }
       if (shownRoute !== r) return;
     } else if (!Store.loaded) Store.load().catch(() => {});
     view.innerHTML = "";
     current = VIEWS[r](view) || {};
-    document.title = ({ cerebro: "Cérebro", memorias: "Memórias", chaves: "Chaves da Capri", conectar: "Conectar a Capri", conta: "Conta" })[r] + " · Cérebro da Capri";
+    document.title = ({ cerebro: "Cérebro", aprendizado: "Aprendizado", memorias: "Memórias", chaves: "Chaves da Capri", conectar: "Conectar a Capri", conta: "Conta" })[r] + " · Cérebro da Capri";
   }
   window.addEventListener("hashchange", route);
   Auth.load();

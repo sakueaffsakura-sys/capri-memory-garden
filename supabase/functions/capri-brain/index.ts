@@ -1,5 +1,7 @@
 // Cérebro da Capri: a porta por onde a Capri (app de PC) guarda e busca o que aprendeu.
 // Toda chamada é POST com JSON {"action": ...}. A Capri se identifica com o cabeçalho x-capri-key (chave cap_...).
+// Conhecimento: remember aceita "level" (1 básico .. 5 especialista) e "topic" (o assunto); memórias do mesmo assunto
+// viram uma trilha (a mais funda "aprofunda" a de baixo). "topics" lista os assuntos e quantas há em cada nível.
 // A ação "register" (cadastro pelo site) não precisa de chave: cria a conta já confirmada.
 // Publicada com verify_jwt = false (a própria função confere a chave).
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -10,7 +12,10 @@ const cors = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const MAX_USERS = 50;
-const CATS = new Set(["sobre-voce", "gostos", "pessoas", "conversas", "sentimentos", "planos", "rotina", "jogos", "leituras", "musica", "capri", "outros"]);
+const CATS = new Set([
+  "sobre-voce", "gostos", "pessoas", "conversas", "sentimentos", "planos", "rotina", "jogos", "leituras", "musica", "capri", "outros",
+  "conhecimento", "ciencia", "tecnologia", "matematica", "idiomas", "historia", "arte", "saude", "habilidades",
+]);
 
 const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -39,6 +44,12 @@ const cat = (v: unknown) => {
   const c = str(v, 20).toLowerCase();
   return CATS.has(c) ? c : null;
 };
+// Para guardar, o banco entende sinônimos ("biologia" vira ciencia), então vai o nome como veio.
+const catLoose = (v: unknown) => str(v, 30) || null;
+const levelOf = (v: unknown) => {
+  const n = int(v, 0, 0, 5);
+  return n >= 1 ? n : null;
+};
 const dateOf = (v: unknown) => {
   if (typeof v !== "string" || !v) return null;
   const d = new Date(v);
@@ -59,11 +70,13 @@ async function remember(user: string, item: any) {
     p_user: user,
     p_content: content,
     p_title: str(item?.title, 120) || null,
-    p_category: cat(item?.category),
+    p_category: catLoose(item?.category),
     p_importance: int(item?.importance, 3, 1, 5),
     p_tags: tagsOf(item?.tags),
     p_source: str(item?.source, 40) || "capri",
     p_happened: dateOf(item?.happened_at),
+    p_level: levelOf(item?.level),
+    p_topic: str(item?.topic, 80) || null,
   });
   let linked = Number(r?.linked ?? 0);
   if (Array.isArray(item?.links)) {
@@ -73,7 +86,7 @@ async function remember(user: string, item: any) {
       if (await rpc("brain_link", { p_user: user, p_from: r.id, p_to: to, p_relation: str(l?.relation, 60) || "relacionado", p_auto: false })) linked++;
     }
   }
-  return { id: r.id, title: r.title, category: r.category, created: r.created, linked };
+  return { id: r.id, title: r.title, category: r.category, level: r.level ?? null, topic: r.topic ?? null, created: r.created, linked };
 }
 
 // deno-lint-ignore no-explicit-any
@@ -150,6 +163,8 @@ Deno.serve(async (req) => {
       }
       case "categories":
         return reply(200, { ok: true, categories: await rpc("brain_categories", { p_user: user }) });
+      case "topics":
+        return reply(200, { ok: true, topics: await rpc("brain_topics", { p_user: user, p_limit: int(body?.limit, 60, 1, 200) }) });
       default:
         return fail(400, "ação desconhecida");
     }
