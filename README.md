@@ -20,8 +20,26 @@ Endereços, números de documento e senhas nunca saem do PC.
 
 Quando você pergunta ou ensina alguma coisa, ela guarda a explicação como **estudo**, com o **assunto** (ex.: Fotossíntese)
 e o **nível**: 1 Básico, 2 Elementar, 3 Intermediário, 4 Avançado, 5 Especialista. As memórias de um mesmo assunto viram
-uma **trilha**: a mais funda "aprofunda" a de baixo. Na aba **Aprendizado** dá para ver as áreas, os assuntos e quanto ela
+uma **trilha**: a mais funda "aprofunda" a de baixo. Na aba **Aprender** dá para ver as áreas, os assuntos e quanto ela
 já subiu em cada um; no grafo, a vista **Níveis** mostra o que ela sabe de vocês no meio e o conhecimento em anéis.
+
+### Memória e aprendizado
+
+Cada memória tem um **tipo**: **fato** (o que ela sabe de vocês e de si mesma), **estudo** (conhecimento, do básico ao
+especialista), **habilidade** (como fazer) e **diário** (o que aconteceu). E tem uma **força**: a retenção cai com o tempo
+(0,9 elevado a dias / força) e sobe quando ela lembra disso numa conversa, quando ouve de novo e quando é revisada.
+Fatos quase não enfraquecem; episódios do diário enfraquecem e saem do céu sozinhos quando ficam fracos (ficam guardados
+em **Esquecidas**, e lembrar traz de volta). No grafo, memória fraca é estrela mais apagada.
+
+- **Aprender**: metas de estudo (assunto, área e até que nível), com o domínio de cada nível e o próximo passo; quanto
+  falta revisar, dias seguidos, acerto da semana e o mapa de revisões; a memória por tipo e por força.
+- **Revisar**: cartões com repetição espaçada. Pergunta, tenta lembrar, vira e responde Errei, Difícil, Lembrei ou
+  Fácil; cada resposta marca quando o estudo volta. Atalhos: espaço vira, 1 a 4 respondem.
+- **Diário**: o que aconteceu, dia a dia, com "É um fato", "É estudo", "Esquecer" e "Lembrar de novo".
+- A Capri recebe junto com o essencial as metas dela e o que está começando a esquecer, e pode puxar esses assuntos.
+  A função `capri-brain` tem as ações `due`, `review`, `goals`, `goal`, `next` e `diary`.
+- A Capri (versão nova) destila o que tira das conversas: separa fatos, estudos, diário e só-narração-de-tela, e guarda
+  os fatos escondidos num episódio como memórias próprias.
 
 ### Em 3D
 

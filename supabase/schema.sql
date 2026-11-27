@@ -388,3 +388,8 @@ revoke execute on function public.handle_new_user(), public.memories_touch() fro
 --   brain_twin (a quase igual que já existe), brain_merge (junta: herda ligações, etiquetas, menções, lembranças),
 --   brain_consolidate (junta todas as repetidas de um cérebro). brain_remember junta na hora uma quase igual (fica a
 --   mais completa). organize_my_brain também junta as repetidas; merge_my_memories para juntar à mão pelo site.
+
+-- 27/11: memória e aprendizado (migrações em supabase/migrations/memoria_e_aprendizado*.sql): tipo de memória (kind),
+--   força e retenção (strength, fresh_at), revisão espaçada (due_at, ease, reviews, lapses, question), esquecidas
+--   (archived), metas de estudo (goals) e histórico de revisões (reviews), tudo só do dono (RLS). brain_review,
+--   review_memory (site), brain_due, brain_goals, brain_maintain, brain_strengthen; recall fortalece o que achou.

@@ -3,6 +3,10 @@
 // Conhecimento: remember aceita "level" (1 básico .. 5 especialista) e "topic" (o assunto); memórias do mesmo assunto
 // viram uma trilha (a mais funda "aprofunda" a de baixo). "topics" lista os assuntos e quantas há em cada nível.
 // Uma memória quase igual a outra que já existe vira uma só (fica a mais completa); "organize" faz isso no cérebro todo.
+// Memória e aprendizado: cada memória tem um tipo (fato, conhecimento, habilidade, episodio) e uma força que o tempo
+// enfraquece e que lembrar, ouvir de novo e revisar aumentam. "due" lista o que está na hora de revisar e "review"
+// registra uma revisão (0 errei, 1 difícil, 2 lembrei, 3 fácil). "goals" e "goal" cuidam das metas de estudo e "next"
+// diz o próximo passo de cada uma. "diary" é o diário (os episódios). "core" leva junto as metas e o que revisar.
 // Toda ação mexe só no cérebro do dono da chave.
 // A ação "register" (cadastro pelo site) não precisa de chave: cria a conta já confirmada.
 // Publicada com verify_jwt = false (a própria função confere a chave).
@@ -52,6 +56,10 @@ const levelOf = (v: unknown) => {
   const n = int(v, 0, 0, 5);
   return n >= 1 ? n : null;
 };
+const KINDS = new Set(["fato", "conhecimento", "habilidade", "episodio"]);
+const kindOf = (v: unknown) => { const k = str(v, 20).toLowerCase(); return KINDS.has(k) ? k : null; };
+const LEVELS = ["", "Básico", "Elementar", "Intermediário", "Avançado", "Especialista"];
+const KNOW = new Set(["conhecimento", "ciencia", "tecnologia", "matematica", "idiomas", "historia", "arte", "saude", "habilidades"]);
 const dateOf = (v: unknown) => {
   if (typeof v !== "string" || !v) return null;
   const d = new Date(v);
@@ -79,6 +87,8 @@ async function remember(user: string, item: any) {
     p_happened: dateOf(item?.happened_at),
     p_level: levelOf(item?.level),
     p_topic: str(item?.topic, 80) || null,
+    p_kind: kindOf(item?.kind),
+    p_question: str(item?.question, 300) || null,
   });
   let linked = Number(r?.linked ?? 0);
   if (Array.isArray(item?.links)) {
@@ -88,7 +98,34 @@ async function remember(user: string, item: any) {
       if (await rpc("brain_link", { p_user: user, p_from: r.id, p_to: to, p_relation: str(l?.relation, 60) || "relacionado", p_auto: false })) linked++;
     }
   }
-  return { id: r.id, title: r.title, category: r.category, level: r.level ?? null, topic: r.topic ?? null, created: r.created, merged: !!r.merged, linked };
+  return { id: r.id, title: r.title, category: r.category, kind: r.kind, level: r.level ?? null, topic: r.topic ?? null, created: r.created, merged: !!r.merged, linked };
+}
+
+// deno-lint-ignore no-explicit-any
+type Goal = any;
+// Uma frase por meta: quão firme está e qual o próximo passo.
+function goalLine(g: Goal) {
+  const has = (g.levels || []).reduce((a: number, n: number, i: number) => (n ? i + 1 : a), 0);
+  const parts = [`${g.topic}: quero chegar ao nível ${g.target_level} (${LEVELS[g.target_level]})`];
+  parts.push(has ? `já tenho até o nível ${has}, domínio ${g.mastery}%` : "ainda não comecei");
+  if (g.next_level) parts.push(`próximo passo: nível ${g.next_level} (${LEVELS[g.next_level]})`);
+  else if (g.weakest && g.weakest.retention < 0.9) parts.push(`revisar "${g.weakest.title}"`);
+  else parts.push("todos os níveis da meta já têm estudo");
+  return parts.join("; ");
+}
+
+// Sugestões do que estudar ou revisar agora, das metas e do que está esquecendo.
+// deno-lint-ignore no-explicit-any
+async function nextSteps(user: string, limit: number): Promise<any[]> {
+  const goals: Goal[] = (await rpc("brain_goals", { p_user: user, p_all: false })) || [];
+  // deno-lint-ignore no-explicit-any
+  const due: any[] = (await rpc("brain_due", { p_user: user, p_limit: limit })) || [];
+  const out = [];
+  for (const g of goals) {
+    if (g.next_level) out.push({ type: "estudar", topic: g.topic, level: g.next_level, text: `Estudar ${g.topic}, nível ${g.next_level} (${LEVELS[g.next_level]})`, goal: g.id });
+  }
+  for (const m of due) out.push({ type: "revisar", id: m.id, topic: m.topic, level: m.level, retention: m.retention, text: `Revisar "${m.title}"${m.topic ? " (" + m.topic + ")" : ""}` });
+  return out.slice(0, limit);
 }
 
 // deno-lint-ignore no-explicit-any
@@ -149,8 +186,57 @@ Deno.serve(async (req) => {
         if (!query) return fail(400, "query vazia");
         return reply(200, { ok: true, memories: await rpc("brain_recall", { p_user: user, p_query: query, p_limit: int(body?.limit, 8, 1, 30), p_category: cat(body?.category) }) });
       }
-      case "core":
-        return reply(200, { ok: true, memories: await rpc("brain_core", { p_user: user, p_limit: int(body?.limit, 30, 1, 60) }) });
+      case "core": {
+        // O que ela sabe de vocês, mais as metas de estudo e o que está começando a esquecer.
+        await rpc("brain_maintain", { p_user: user }).catch(() => 0);
+        // deno-lint-ignore no-explicit-any
+        const memories: any[] = (await rpc("brain_core", { p_user: user, p_limit: int(body?.limit, 30, 1, 60) })) || [];
+        const goals: Goal[] = (await rpc("brain_goals", { p_user: user, p_all: false })) || [];
+        // deno-lint-ignore no-explicit-any
+        const due: any[] = (await rpc("brain_due", { p_user: user, p_limit: 5 })) || [];
+        if (goals.length) memories.push({ id: "metas", kind: "meta", title: "Minhas metas de estudo", content: goals.map(goalLine).join(". ") + "." });
+        if (due.length) {
+          memories.push({ id: "revisar", kind: "revisao", title: "Estou começando a esquecer",
+            content: due.map((m) => `${m.title}${m.topic ? " (" + m.topic + ", nível " + (m.level ?? "?") + ")" : ""}`).join("; ")
+              + ". Quando couber na conversa, posso puxar um desses assuntos ou perguntar sobre ele para fixar." });
+        }
+        return reply(200, { ok: true, memories, goals: goals.length, due: due.length });
+      }
+      case "due":
+        return reply(200, { ok: true, memories: await rpc("brain_due", { p_user: user, p_limit: int(body?.limit, 20, 1, 100) }) });
+      case "review": {
+        const id = str(body?.id, 60);
+        if (!/^[0-9a-f-]{36}$/i.test(id)) return fail(400, "diga o id");
+        const done = await rpc("brain_review", { p_user: user, p_id: id, p_grade: int(body?.grade, 2, 0, 3), p_capri: body?.by_capri !== false });
+        return done ? reply(200, { ok: true, ...done }) : fail(404, "memória não encontrada");
+      }
+      case "goals":
+        return reply(200, { ok: true, goals: await rpc("brain_goals", { p_user: user, p_all: body?.all === true }) });
+      case "goal": {
+        const topic = str(body?.topic, 80).replace(/\s+/g, " ");
+        if (!topic) return fail(400, "diga o assunto (topic)");
+        const c = str(body?.category, 30).toLowerCase();
+        const status = ["ativa", "pausada", "concluida", "sugerida"].includes(str(body?.status, 20)) ? str(body?.status, 20) : "ativa";
+        const row = { user_id: user, topic, category: KNOW.has(c) ? c : "conhecimento", target_level: int(body?.level, 3, 1, 5), why: str(body?.why, 400) || null, status };
+        const { data: found } = await admin.from("goals").select("id,topic").eq("user_id", user);
+        const fold = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+        const same = (found || []).find((g) => fold(g.topic) === fold(topic));
+        const { error } = same
+          ? await admin.from("goals").update({ target_level: row.target_level, status, ...(row.why ? { why: row.why } : {}) }).eq("id", same.id).eq("user_id", user)
+          : await admin.from("goals").insert(row);
+        if (error) throw new Error(error.message);
+        return reply(200, { ok: true, created: !same, goals: await rpc("brain_goals", { p_user: user, p_all: false }) });
+      }
+      case "next":
+        return reply(200, { ok: true, next: await nextSteps(user, int(body?.limit, 8, 1, 30)) });
+      case "diary": {
+        const days = int(body?.days, 7, 1, 90);
+        const since = new Date(Date.now() - days * 86400000).toISOString();
+        const { data, error } = await admin.from("memories").select("id,title,content,category,importance,happened_at,created_at,archived")
+          .eq("user_id", user).eq("kind", "episodio").gte("created_at", since).order("created_at", { ascending: false }).limit(200);
+        if (error) throw new Error(error.message);
+        return reply(200, { ok: true, days, episodes: data });
+      }
       case "recent":
         return reply(200, { ok: true, memories: await rpc("brain_recent", { p_user: user, p_limit: int(body?.limit, 20, 1, 100), p_category: cat(body?.category) }) });
       case "forget": {
@@ -168,7 +254,8 @@ Deno.serve(async (req) => {
       case "organize": {
         // Junta as memórias repetidas e liga as parecidas, só neste cérebro.
         const merged = await rpc("brain_consolidate", { p_user: user });
-        return reply(200, { ok: true, merged });
+        const faded = await rpc("brain_maintain", { p_user: user });
+        return reply(200, { ok: true, merged, faded });
       }
       case "merge": {
         const keep = str(body?.keep, 60), drop = Array.isArray(body?.drop) ? body.drop.map((d: unknown) => str(d, 60)).filter((d: string) => /^[0-9a-f-]{36}$/i.test(d)).slice(0, 50) : [];

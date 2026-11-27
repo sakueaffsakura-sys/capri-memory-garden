@@ -310,7 +310,7 @@
       const old = this.byId, by = new Map(), first = old.size === 0, spread = Math.cbrt(nodes.length + 1) * 22;
       for (const n of nodes) {
         const o = old.get(n.id);
-        if (o) { Object.assign(o, { label: n.label, kind: n.kind, cat: n.cat, imp: n.imp, deg: n.deg, level: n.level || 0, know: !!n.know, recalls: n.recalls || 0, born: n.born || o.born }); by.set(n.id, o); continue; }
+        if (o) { Object.assign(o, { label: n.label, kind: n.kind, cat: n.cat, imp: n.imp, deg: n.deg, level: n.level || 0, know: !!n.know, recalls: n.recalls || 0, ret: n.ret, ep: !!n.ep, born: n.born || o.born }); by.set(n.id, o); continue; }
         const near = n.near && (old.get(n.near) || by.get(n.near)), hub = near || old.get("hub:" + n.cat) || by.get("hub:" + n.cat);
         const u = Math.random() * 2 - 1, t = Math.random() * TAU, rr = Math.sqrt(1 - u * u), d = 6 + Math.random() * (first ? spread : 26);
         const bx = hub && !first ? hub.x : 0, byy = hub && !first ? hub.y : 0, bz = hub && !first ? hub.z : 0;
@@ -342,6 +342,8 @@
       for (const n of this.nodes) {
         n.w = n.kind === "hub" ? 2.5 : 1; n.lone = !count.get(n);
         n.r = n.kind === "hub" ? 4.2 + Math.min(10, Math.sqrt(n.deg) * 0.85) : 1.5 + n.imp * 0.34 + (n.level ? n.level * 0.25 : 0) + Math.min(4.5, Math.sqrt(count.get(n) || 0) * 0.6) + Math.min(1.5, Math.log2(1 + n.recalls) * 0.4);
+        // Memória fraca é estrela menor; episódio do diário é poeira de estrela.
+        if (n.kind !== "hub") n.r *= (0.72 + 0.28 * (n.ret == null ? 1 : n.ret)) * (n.ep ? 0.82 : 1);
         n.seed = (hash(n.id) % 100000) / 100000;
         n.ring = n.kind === "hub" ? -1 : n.know ? Math.max(1, n.level || 1) : 0;
         if (n.kind !== "hub") mems++;
@@ -541,7 +543,13 @@
       if (!this.pos || this.pos.length !== N * 3) { this.pos = new Float32Array(N * 3); this.col = new Float32Array(N * 3); this.info = new Float32Array(N * 4); }
       const lit = this.lit(), act = this.hover || this.selected;
       for (let i = 0; i < N; i++) {
-        const n = ns[i], c = this.colorOf(n), on = lit ? lit.has(n) : true;
+        const n = ns[i], on = lit ? lit.has(n) : true;
+        let c = this.colorOf(n);
+        // O tempo apaga a estrela; lembrar e revisar acendem de novo.
+        if (n.kind !== "hub" && n.ret != null && n.ret < 0.999) {
+          const f = 0.3 + 0.7 * n.ret;
+          c = light ? c.map((v) => v + (1 - v) * (1 - f) * 0.75) : c.map((v) => v * f);
+        }
         this.col[i * 3] = c[0]; this.col[i * 3 + 1] = c[1]; this.col[i * 3 + 2] = c[2];
         let flags = (n.kind === "hub" ? 1 : 0) + (lit && !on ? 2 : 0) + (lit && on && n !== act ? 4 : 0) + (n === act ? 8 : 0) + (n.flash && t - n.flash < 1600 ? 32 : 0);
         this.info[i * 4] = n.r * (light ? 1.0 : 0.9); this.info[i * 4 + 1] = n.seed; this.info[i * 4 + 2] = n.kind === "hub" ? 0 : n.level; this.info[i * 4 + 3] = flags;

@@ -35,7 +35,34 @@
   const catOf = (id) => CAT.get(id) || CAT.get("outros");
   const LEVELS = ["", "Básico", "Elementar", "Intermediário", "Avançado", "Especialista"];
   const LEVEL_COLORS = ["", "#94a3b8", "#5eead4", "#60a5fa", "#a78bfa", "#fbbf24"];
-  const isKnow = (m) => m.level != null || catOf(m.category).g === "k";
+  // Tipos de memória: o que ela sabe (fatos), o que estudou, como fazer e o diário do que aconteceu.
+  const KINDS = {
+    fato: { label: "Fato", many: "Fatos", line: "O que ela sabe de vocês e de si mesma. Quase não enfraquece.", icon: "◆" },
+    conhecimento: { label: "Estudo", many: "Estudos", line: "O que ela estudou, do básico ao especialista. Volta para revisão no dia certo.", icon: "✦" },
+    habilidade: { label: "Habilidade", many: "Habilidades", line: "Como fazer as coisas. Revisada como os estudos.", icon: "✚" },
+    episodio: { label: "Diário", many: "Diário", line: "O que aconteceu. Vai enfraquecendo e sai do céu quando fica fraco, sem ser apagado.", icon: "◌" },
+  };
+  const kindOf = (m) => (KINDS[m.kind] ? m.kind : m.level != null || catOf(m.category).g === "k" ? "conhecimento" : "fato");
+  const isKnow = (m) => { const k = kindOf(m); return k === "conhecimento" || k === "habilidade"; };
+  // Força de uma memória (retenção): 1 = firme como no dia em que aprendeu; cai com o tempo, mais devagar quanto mais
+  // ela foi lembrada e revisada. Mesma conta do banco: 0,9 ^ (dias desde a última vez / força em dias).
+  const DAY = 86400000;
+  const retention = (m, at = Date.now()) => Math.pow(0.9, Math.max(0, (at - Date.parse(m.fresh_at || m.updated_at || m.created_at)) / DAY) / Math.max(0.1, m.strength || 7));
+  const retLabel = (r) => (r >= 0.9 ? "firme" : r >= 0.7 ? "boa" : r >= 0.4 ? "fraca" : "quase esquecida");
+  const retColor = (r) => (r >= 0.9 ? "#4ade80" : r >= 0.7 ? "#a3e635" : r >= 0.4 ? "#fbbf24" : "#f87171");
+  const isDue = (m) => !m.archived && !!m.due_at && Date.parse(m.due_at) <= Date.now();
+  const force = (m) => { const r = retention(m); return `<span class="force" title="Força ${Math.round(r * 100)}%: ${retLabel(r)}"><i style="width:${Math.max(4, Math.round(r * 100))}%;background:${retColor(r)}"></i></span>`; };
+  const inTime = (d) => (d < 1 / 24 ? Math.max(1, Math.round(d * 1440)) + " min" : d < 1 ? Math.round(d * 24) + " h" : d < 60 ? Math.round(d) + (Math.round(d) === 1 ? " dia" : " dias") : d < 730 ? Math.round(d / 30) + " meses" : Math.round(d / 365) + " anos");
+  // Quanto tempo a memória aguenta depois de cada resposta (a mesma conta de brain_review).
+  function afterGrade(m, g) {
+    let e = m.ease || 2.5, s = m.strength || 1;
+    const r = retention(m), gain = (m.reviews || 0) === 0 ? 1 : Math.min(1, Math.max(0.15, (1 - r) / 0.1));
+    if (g === 0) return 10 / 1440;
+    if (g === 1) s = Math.max(1, s * (1 + 0.2 * gain));
+    else if (g === 2) s = Math.max(1, s * (1 + (e - 1) * gain));
+    else { e = Math.min(3.5, e + 0.15); s = Math.max(2, s * (1 + (e * 1.3 - 1) * gain)); }
+    return Math.min(3650, s);
+  }
   // O cérebro muda de cara conforme cresce.
   const STAGES = [
     { min: 0, name: "Semente", line: "As primeiras lembranças começando a brotar." },
@@ -48,7 +75,9 @@
   const stageOf = (n) => { let i = 0; while (i + 1 < STAGES.length && n >= STAGES[i + 1].min) i++; return i; };
   const growthOf = (n) => Math.max(0, Math.min(1, Math.log(1 + n) / Math.log(1 + 3000)));
   const REDUCED = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
-  const MCOLS = "id,title,content,category,importance,level,topic,tags,source,happened_at,mentions,recall_count,last_recalled_at,created_at,updated_at";
+  const MCOLS = "id,title,content,category,importance,level,topic,tags,source,happened_at,mentions,recall_count,last_recalled_at,created_at,updated_at,kind,strength,ease,reviews,lapses,last_review_at,due_at,fresh_at,question,archived";
+  const LEARN = "id,kind,strength,ease,reviews,lapses,last_review_at,due_at,fresh_at,archived,recall_count,last_recalled_at";
+  const GCOLS = "id,topic,category,target_level,why,status,created_at,updated_at,done_at";
   const LCOLS = "id,source_id,target_id,relation,strength,auto,created_at";
   const SESSION = "cerebro.sessao", PREFS = "cerebro.prefs";
   const BG = "#18181b", VIOLET = "#8b5cf6";
@@ -191,18 +220,22 @@
 
   // ---------------- dados ----------------
   const Store = {
-    mems: new Map(), links: new Map(), loaded: false, loading: null, lastMem: "", lastLink: "", subs: new Set(), born: new Map(), sparks: new Set(),
-    reset() { this.mems.clear(); this.links.clear(); this.born.clear(); this.sparks.clear(); this.loaded = false; this.loading = null; this.lastMem = this.lastLink = ""; this.gen = (this.gen || 0) + 1; },
+    mems: new Map(), links: new Map(), goals: new Map(), reviews: [], loaded: false, loading: null, lastMem: "", lastLink: "", subs: new Set(), born: new Map(), sparks: new Set(),
+    reset() { this.mems.clear(); this.links.clear(); this.goals.clear(); this.reviews = []; this.born.clear(); this.sparks.clear(); this.loaded = false; this.loading = null; this.lastMem = this.lastLink = ""; this.gen = (this.gen || 0) + 1; },
     on(f) { this.subs.add(f); return () => this.subs.delete(f); },
     emit() { for (const f of this.subs) f(); },
     load() {
       if (this.loaded) return Promise.resolve();
       if (!this.loading) this.loading = (async () => {
         const gen = this.gen;
-        const [m, l] = await Promise.all([pageAll(`memories?select=${MCOLS}&order=created_at.asc`), pageAll(`memory_links?select=${LCOLS}&order=created_at.asc`)]);
+        const since = new Date(Date.now() - 120 * DAY).toISOString();
+        const [m, l, g, r] = await Promise.all([pageAll(`memories?select=${MCOLS}&order=created_at.asc`), pageAll(`memory_links?select=${LCOLS}&order=created_at.asc`),
+          rest(`goals?select=${GCOLS}&order=created_at.asc`).catch(() => []), pageAll(`reviews?select=memory_id,grade,retention,reviewed_at&reviewed_at=gt.${encodeURIComponent(since)}&order=reviewed_at.asc`).catch(() => [])]);
         if (gen !== this.gen) throw new Error("A conta mudou. Carregue de novo.");
         this.mems = new Map(m.map((x) => [x.id, x]));
         this.links = new Map(l.map((x) => [x.id, x]));
+        this.goals = new Map((g || []).map((x) => [x.id, x]));
+        this.reviews = r || [];
         this.lastMem = m.reduce((a, x) => (x.updated_at > a ? x.updated_at : a), "1970-01-01T00:00:00+00:00");
         this.lastLink = l.reduce((a, x) => (x.created_at > a ? x.created_at : a), "1970-01-01T00:00:00+00:00");
         this.loaded = true;
@@ -240,20 +273,27 @@
     async sync() {
       if (!this.loaded) return;
       const gen = this.gen;
-      const [ids, l] = await Promise.all([pageAll("memories?select=id&order=id.asc"), pageAll(`memory_links?select=${LCOLS}&order=created_at.asc`)]);
+      // Junto: a força, as revisões e o que foi esquecido mudam sem mexer no texto, então vêm à parte.
+      const [ids, l, g] = await Promise.all([pageAll(`memories?select=${LEARN}&order=id.asc`), pageAll(`memory_links?select=${LCOLS}&order=created_at.asc`), rest(`goals?select=${GCOLS}&order=created_at.asc`).catch(() => null)]);
       if (gen !== this.gen) return;
       const keep = new Set(ids.map((x) => x.id));
       let changed = false;
       for (const id of [...this.mems.keys()]) if (!keep.has(id)) { this.dropMem(id); changed = true; }
+      for (const x of ids) {
+        const m = this.mems.get(x.id);
+        if (m && (m.archived !== x.archived || m.strength !== x.strength || m.due_at !== x.due_at || m.kind !== x.kind || m.recall_count !== x.recall_count)) { Object.assign(m, x); changed = true; }
+      }
+      if (g) { const before = JSON.stringify([...this.goals.values()]); this.goals = new Map(g.map((x) => [x.id, x])); if (before !== JSON.stringify(g)) changed = true; }
       const before = this.links.size;
       this.links = new Map(l.map((x) => [x.id, x]));
       if (changed || before !== this.links.size) this.emit();
     },
     takeSparks() { const s = [...this.sparks]; this.sparks.clear(); return s; },
+    due() { return [...this.mems.values()].filter(isDue).sort((a, b) => retention(a) - retention(b)); },
     topics() {
       const by = new Map();
       for (const m of this.mems.values()) {
-        if (!m.topic) continue;
+        if (!m.topic || m.archived) continue;
         const key = norm(m.topic);
         let t = by.get(key);
         if (!t) by.set(key, (t = { topic: m.topic, key, mems: [], levels: [0, 0, 0, 0, 0, 0], cats: new Map(), updated: "" }));
@@ -402,7 +442,7 @@
       const spread = Math.sqrt(nodes.length + 1) * 14;
       for (const n of nodes) {
         const o = old.get(n.id);
-        if (o) { Object.assign(o, { label: n.label, kind: n.kind, cat: n.cat, imp: n.imp, deg: n.deg, level: n.level || 0, know: !!n.know, born: n.born || o.born }); by.set(n.id, o); continue; }
+        if (o) { Object.assign(o, { label: n.label, kind: n.kind, cat: n.cat, imp: n.imp, deg: n.deg, level: n.level || 0, know: !!n.know, ret: n.ret, born: n.born || o.born }); by.set(n.id, o); continue; }
         const near = n.near && (old.get(n.near) || by.get(n.near)), hub = near || old.get("hub:" + n.cat) || by.get("hub:" + n.cat);
         const a = Math.random() * TAU, d = 6 + Math.random() * (first ? spread : 24);
         n.x = (hub && !first ? hub.x : 0) + Math.cos(a) * d; n.y = (hub && !first ? hub.y : 0) + Math.sin(a) * d; n.vx = n.vy = 0;
@@ -805,6 +845,8 @@
           ctx.strokeStyle = `rgba(237,233,254,${0.8 * (1 - p)})`; ctx.lineWidth = 1.5 / k; ctx.stroke();
         }
         if (n === act) { ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 2.2 + 3, 0, TAU); ctx.fillStyle = "rgba(139,92,246,0.25)"; ctx.fill(); }
+        // Memória fraca brilha menos: o tempo apaga, lembrar acende de novo.
+        ctx.globalAlpha = hub ? 1 : 0.32 + 0.68 * (n.ret == null ? 1 : n.ret);
         ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, TAU);
         let body;
         if (!lit) body = c;
@@ -819,6 +861,7 @@
           ctx.beginPath(); ctx.arc(n.x - n.r * 0.18, n.y - n.r * 0.18, n.r * (hub ? 0.42 : 0.38), 0, TAU);
           ctx.fillStyle = `rgba(${hi[0]},${hi[1]},${hi[2]},0.85)`; ctx.fill();
         }
+        ctx.globalAlpha = 1;
         if (hub && px > 2) {
           ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 2.6, 0, TAU);
           ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${lit && !on ? 0.12 : 0.55})`; ctx.lineWidth = 1 / k; ctx.stroke();
@@ -1092,6 +1135,7 @@
   catSelect.innerHTML = `<optgroup label="Sobre vocês">${CATS.filter((c) => c.g === "p").map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join("")}</optgroup>`
     + `<optgroup label="Conhecimento">${CATS.filter((c) => c.g === "k").map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join("")}</optgroup>`;
   $("#mfLevel").innerHTML = `<option value="">— não é estudo</option>` + LEVELS.slice(1).map((l, i) => `<option value="${i + 1}">${i + 1} · ${l}</option>`).join("");
+  $("#mfKind").innerHTML = `<option value="">Automático</option>` + Object.entries(KINDS).map(([id, k]) => `<option value="${id}">${k.icon} ${k.label}</option>`).join("");
   let editing = null;
   function openMemory(mem) {
     editing = mem || null;
@@ -1103,6 +1147,8 @@
     $("#mfTags").value = mem ? (mem.tags || []).join(", ") : "";
     $("#mfTopic").value = mem ? mem.topic || "" : "";
     $("#mfLevel").value = mem && mem.level ? String(mem.level) : "";
+    $("#mfKind").value = mem ? kindOf(mem) : "";
+    $("#mfQ").value = mem ? mem.question || "" : "";
     $("#topicList").innerHTML = Store.topics().slice(0, 500).map((t) => `<option value="${esc(t.topic)}"></option>`).join("");
     $("#mfErr").textContent = "";
     $("#memDialog").showModal();
@@ -1119,7 +1165,11 @@
       tags: [...new Set($("#mfTags").value.split(",").map((t) => t.trim().toLowerCase().slice(0, 40)).filter(Boolean))].slice(0, 12),
       topic: $("#mfTopic").value.trim().replace(/\s+/g, " ").slice(0, 80) || null,
       level: $("#mfLevel").value ? Number($("#mfLevel").value) : null,
+      question: $("#mfQ").value.trim().replace(/\s+/g, " ").slice(0, 300) || null,
     };
+    if ($("#mfKind").value) body.kind = $("#mfKind").value;
+    else if (body.level) body.kind = catOf(body.category).id === "habilidades" ? "habilidade" : "conhecimento";
+    if (body.question && body.question.length < 3) body.question = null;
     // O mesmo assunto escrito de outro jeito usa a grafia que já existe.
     if (body.topic) { const same = Store.topics().find((t) => t.key === norm(body.topic)); if (same) body.topic = same.topic; }
     // Estudo sem área escolhida vai para "Conhecimento geral".
@@ -1170,6 +1220,44 @@
   function levelBadge(level) { return level ? `<span class="lvl" style="--lc:${LEVEL_COLORS[level]}">${level} · ${LEVELS[level]}</span>` : ""; }
   function ladder(levels) { return `<span class="ladder">${[1, 2, 3, 4, 5].map((i) => `<i style="--lc:${LEVEL_COLORS[i]}" class="${levels[i] ? "on" : ""}" title="${LEVELS[i]}: ${levels[i]}"></i>`).join("")}</span>`; }
 
+  // O bloco "memória" de uma memória: quão firme está, quando volta para revisão e o que dá para fazer com ela.
+  function memoryBox(m) {
+    const r = retention(m), k = kindOf(m), study = k === "conhecimento" || k === "habilidade";
+    const next = m.due_at ? (Date.parse(m.due_at) - Date.now()) / DAY : null;
+    return `<div class="membox">
+      <div class="row" style="justify-content:space-between;align-items:baseline"><b>${m.archived ? "Esquecida" : "Força " + Math.round(r * 100) + "%"}</b><span class="faint" style="font-size:12px">${m.archived ? "fora do céu, guardada" : retLabel(r)}</span></div>
+      ${m.archived ? "" : force(m)}
+      <div class="faint" style="font-size:12px;margin-top:6px">${study ? (m.due_at ? (next <= 0 ? "Hora de revisar." : "Volta para revisão em " + inTime(next) + ".") : "Ainda sem revisão marcada.") + (m.reviews ? ` Revisada ${m.reviews}×${m.lapses ? `, esqueceu ${m.lapses}×` : ""}.` : "") : k === "episodio" ? "Do diário: enfraquece com o tempo, a não ser que ela lembre disso." : "Fato: quase não enfraquece, e fica mais forte cada vez que ela lembra."}</div>
+      <div class="row" style="gap:6px;margin-top:8px">
+        ${study && !m.archived ? `<a class="btn small" href="#/revisar?id=${m.id}">Revisar agora</a>` : ""}
+        <select class="input small" data-kind aria-label="Tipo">${Object.entries(KINDS).map(([id, x]) => `<option value="${id}"${id === k ? " selected" : ""}>${x.icon} ${x.label}</option>`).join("")}</select>
+        ${m.archived ? `<button class="btn small" data-wake>Lembrar de novo</button>` : k === "episodio" ? `<button class="btn small ghost" data-fade>Esquecer</button>` : ""}
+      </div></div>`;
+  }
+  async function patchMemory(m, body, msg) {
+    try {
+      const rows = await rest(`memories?id=eq.${m.id}`, { method: "PATCH", body, prefer: "return=representation" });
+      if (rows && rows[0]) Store.putMem(rows[0], false);
+      Store.emit();
+      if (msg) toast(msg);
+      return rows && rows[0];
+    } catch (err) { toast(err.message, true); return null; }
+  }
+  const wake = (m) => patchMemory(m, { archived: false, fresh_at: new Date().toISOString() }, "Ela lembrou disso de novo.");
+  const fade = (m) => patchMemory(m, { archived: true }, "Saiu do céu. Continua guardada no Diário, em Esquecidas.");
+  function setKind(m, kind) {
+    const body = { kind };
+    if ((kind === "conhecimento" || kind === "habilidade") && catOf(m.category).g !== "k") body.category = kind === "habilidade" ? "habilidades" : "conhecimento";
+    if (kind === "fato" && catOf(m.category).g === "k") body.category = "outros";
+    return patchMemory(m, body, `Agora é ${KINDS[kind].label.toLowerCase()}.`);
+  }
+  function wireMemoryBox(root, m) {
+    const sel = root.querySelector("[data-kind]"), w = root.querySelector("[data-wake]"), f = root.querySelector("[data-fade]");
+    if (sel) sel.onchange = () => setKind(m, sel.value);
+    if (w) w.onclick = () => wake(m);
+    if (f) f.onclick = () => fade(m);
+  }
+
   function viewGraph(el) {
     el.classList.add("full");
     el.innerHTML = `
@@ -1192,7 +1280,7 @@
       <div class="tip hidden" id="tip"></div>
       <div class="hint3d" id="hint3d">Arraste para girar · role para aproximar · botão direito move · dois cliques no vazio mostram tudo</div>`;
     const hiddenCats = new Set(prefs.hidden || []);
-    let showHubs = prefs.hubs !== false, colors = prefs.colors !== false, query = "", selectedId = null, mode = prefs.mode === "levels" ? "levels" : "web";
+    let showHubs = prefs.hubs !== false, colors = prefs.colors !== false, showFaded = !!prefs.faded, query = "", selectedId = null, mode = prefs.mode === "levels" ? "levels" : "web";
     let upto = null, replay = null;
     const replayBorn = new Map();
     const tip = $("#tip", el), side = $("#side", el);
@@ -1227,7 +1315,7 @@
         const m = Store.mems.get(n.id);
         const st = m && window.Space ? Space.starOf(m.id, m.importance, m.recall_count, m.level) : null;
         tip.innerHTML = n.kind === "hub" ? `<b>${esc(n.label)}</b>${n.deg} ${n.deg === 1 ? "memória" : "memórias"}`
-          : `<b>${esc(n.label)}</b>${esc(catOf(n.cat).label)}${m && m.topic ? " · " + esc(m.topic) : ""}${m && m.level ? `<br>${levelBadge(m.level)}` : m ? " · " + stars(m.importance) : ""}${st ? `<div class="starline">✦ ${esc(st.name)} · classe ${st.cls}</div>` : ""}`;
+          : `<b>${esc(n.label)}</b>${m ? esc(KINDS[kindOf(m)].label) + " · " : ""}${esc(catOf(n.cat).label)}${m && m.topic ? " · " + esc(m.topic) : ""}${m && m.level ? `<br>${levelBadge(m.level)}` : m ? " · " + stars(m.importance) : ""}${m ? `<div class="starline">${m.archived ? "esquecida" : "força " + Math.round(retention(m) * 100) + "% · " + retLabel(retention(m))}${isDue(m) ? " · hora de revisar" : ""}</div>` : ""}${st ? `<div class="starline">✦ ${esc(st.name)} · classe ${st.cls}</div>` : ""}`;
         tip.style.left = Math.min(p.x + 14, el.clientWidth - 290) + "px";
         tip.style.top = p.y + 14 + "px";
         tip.classList.remove("hidden");
@@ -1253,14 +1341,14 @@
     function build(reheat) {
       const counts = new Map();
       for (const m of Store.mems.values()) counts.set(m.category, (counts.get(m.category) || 0) + 1);
-      const shown = [...Store.mems.values()].filter((m) => !hiddenCats.has(m.category) && (!upto || Date.parse(m.created_at) <= upto));
+      const shown = [...Store.mems.values()].filter((m) => !hiddenCats.has(m.category) && (showFaded || !m.archived) && (!upto || Date.parse(m.created_at) <= upto));
       const keep = new Set(shown.map((m) => m.id)), deg = new Map(), edges = [];
       for (const l of Store.links.values()) {
         if (!keep.has(l.source_id) || !keep.has(l.target_id)) continue;
         edges.push({ a: l.source_id, b: l.target_id, trail: TRAIL.has(l.relation) });
         deg.set(l.source_id, (deg.get(l.source_id) || 0) + 1); deg.set(l.target_id, (deg.get(l.target_id) || 0) + 1);
       }
-      const nodes = shown.map((m) => ({ id: m.id, kind: "m", cat: m.category, label: m.title, imp: m.importance, level: m.level || 0, know: isKnow(m), recalls: m.recall_count || 0, deg: deg.get(m.id) || 0, born: replayBorn.get(m.id) || Store.born.get(m.id) }));
+      const nodes = shown.map((m) => ({ id: m.id, kind: "m", cat: m.category, label: m.title, imp: m.importance, level: m.level || 0, know: isKnow(m), recalls: m.recall_count || 0, deg: deg.get(m.id) || 0, ret: m.archived ? 0.15 : retention(m), ep: kindOf(m) === "episodio", born: replayBorn.get(m.id) || Store.born.get(m.id) }));
       if (showHubs) {
         const perCat = new Map();
         for (const m of shown) { perCat.set(m.category, (perCat.get(m.category) || 0) + 1); edges.push({ a: m.id, b: "hub:" + m.category, hub: true }); }
@@ -1272,13 +1360,15 @@
       $("#stage", el).classList.toggle("hidden", Store.mems.size === 0);
       const chip = (c) => `<button class="chip${hiddenCats.has(c.id) ? " off" : ""}" data-c="${c.id}" aria-pressed="${!hiddenCats.has(c.id)}"><i class="dot" style="background:${c.color}"></i>${esc(c.label)} <span class="n">${counts.get(c.id)}</span></button>`;
       const mine = CATS.filter((c) => c.g === "p" && counts.get(c.id)), know = CATS.filter((c) => c.g === "k" && counts.get(c.id));
+      let faded = 0; for (const m of Store.mems.values()) if (m.archived) faded++;
       $("#chips", el).innerHTML = mine.map(chip).join("") + (know.length ? `<span class="chipsep">Conhecimento</span>` + know.map(chip).join("") : "")
         + `<span class="chipsep">Vista</span>`
         + (window.Space && Space.ok() ? `<button class="chip hubs${three ? "" : " off"}" data-c="__3d" aria-pressed="${three}">3D</button>` : "")
         + (three ? `<button class="chip hubs${theme === "light" ? "" : " off"}" data-c="__light" aria-pressed="${theme === "light"}">Fundo claro</button>`
           + `<button class="chip hubs${prefs.spin !== false ? "" : " off"}" data-c="__spin" aria-pressed="${prefs.spin !== false}">Girar sozinho</button>` : "")
         + `<button class="chip hubs${showHubs ? "" : " off"}" data-c="__hubs" aria-pressed="${showHubs}">Mostrar categorias</button>`
-        + `<button class="chip hubs${colors ? "" : " off"}" data-c="__colors" aria-pressed="${colors}">Cores</button>`;
+        + `<button class="chip hubs${colors ? "" : " off"}" data-c="__colors" aria-pressed="${colors}">Cores</button>`
+        + (faded ? `<button class="chip hubs${showFaded ? "" : " off"}" data-c="__faded" aria-pressed="${showFaded}" title="Episódios do diário que enfraqueceram e saíram do céu">Esquecidas <span class="n">${faded}</span></button>` : "");
       stageCard();
       applySearch();
       if (selectedId) { if (Store.mems.has(selectedId)) renderSide(); else select(null); }
@@ -1311,7 +1401,8 @@
           ${(() => { const st = window.Space ? Space.starOf(m.id, m.importance, m.recall_count, m.level) : null; return st ? `<div class="star" title="Cada memória é uma estrela única do cérebro">✦ Estrela <b>${esc(st.name)}</b> ${esc(st.code)} · classe ${st.cls} · brilho ${String(st.mag).replace(".", ",")} · ${st.points} pontas</div>` : ""; })()}
           ${(m.tags || []).length ? `<div>${m.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
           ${trail && trail.mems.length > 1 ? `<div><div class="f" style="font-size:13px;color:var(--faint);margin-bottom:8px">Trilha de ${esc(trail.topic)} · do básico ao avançado</div><ol class="trail">${trail.mems.map((x) => `<li class="${x.id === m.id ? "here" : ""}" style="--lc:${LEVEL_COLORS[x.level || 1]}"><button data-go="${x.id}"><span>${esc(x.title)}</span><small>${x.level ? LEVELS[x.level] : "sem nível"}</small></button></li>`).join("")}</ol></div>` : ""}
-          <dl class="meta"><dt>Criada</dt><dd>${when(m.created_at)}</dd><dt>Mudou</dt><dd>${when(m.updated_at)}</dd><dt>Lembrada</dt><dd>${m.recall_count ? `${m.recall_count}× · ${ago(m.last_recalled_at)}` : "ainda não"}</dd><dt>Veio de</dt><dd>${esc(m.source || "—")}${m.mentions > 1 ? ` · citada ${m.mentions}×` : ""}</dd></dl>
+          ${memoryBox(m)}
+          <dl class="meta"><dt>Tipo</dt><dd>${KINDS[kindOf(m)].icon} ${esc(KINDS[kindOf(m)].label)}</dd><dt>Criada</dt><dd>${when(m.created_at)}</dd><dt>Mudou</dt><dd>${when(m.updated_at)}</dd><dt>Lembrada</dt><dd>${m.recall_count ? `${m.recall_count}× · ${ago(m.last_recalled_at)}` : "ainda não"}</dd><dt>Veio de</dt><dd>${esc(m.source || "—")}${m.mentions > 1 ? ` · citada ${m.mentions}×` : ""}</dd></dl>
           <div class="row"><button class="btn small" id="edit">Editar</button><button class="btn small danger" id="del">Excluir</button></div>
           <div><div class="f" style="font-size:13px;color:var(--faint);margin-bottom:8px">Ligada a ${nb.length} ${nb.length === 1 ? "memória" : "memórias"}</div>
             <div class="stack" style="gap:6px">${nb.map((x) => `<div class="nb"><button class="go" data-go="${x.mem.id}">${esc(x.mem.title)}<div class="rel">${esc(x.link.relation || "relacionado")}${x.link.auto ? " · automática" : ""}</div></button><button class="x" data-unlink="${x.link.id}" title="Desligar" aria-label="Desligar">×</button></div>`).join("") || `<span class="faint" style="font-size:13px">Nenhuma ligação ainda.</span>`}</div></div>
@@ -1325,6 +1416,7 @@
       $("#close", side).onclick = () => select(null);
       $("#edit", side).onclick = () => openMemory(m);
       $("#del", side).onclick = async () => { if (await removeMemory(m)) select(null); };
+      wireMemoryBox(side, m);
       const tg = $("#topicGo", side);
       if (tg) tg.onclick = () => { const q = $("#q", el); q.value = query = m.topic; const ids = applySearch(); if (ids.length) g.fit(ids); };
       side.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => select(b.dataset.go, true)));
@@ -1356,7 +1448,8 @@
       if (b.dataset.c === "__3d") { prefs.view3d = three ? "2d" : "3d"; savePrefs(); shownRoute = null; route(); return; }
       if (b.dataset.c === "__light") { prefs.theme = theme === "light" ? "dark" : "light"; savePrefs(); shownRoute = null; route(); return; }
       if (b.dataset.c === "__spin") { prefs.spin = prefs.spin === false; savePrefs(); g.spin = prefs.spin; build(0); return; }
-      if (b.dataset.c === "__hubs") { showHubs = !showHubs; prefs.hubs = showHubs; }
+      if (b.dataset.c === "__faded") { showFaded = !showFaded; prefs.faded = showFaded; }
+      else if (b.dataset.c === "__hubs") { showHubs = !showHubs; prefs.hubs = showHubs; }
       else { hiddenCats.has(b.dataset.c) ? hiddenCats.delete(b.dataset.c) : hiddenCats.add(b.dataset.c); prefs.hidden = [...hiddenCats]; }
       savePrefs(); build(0.4);
     });
@@ -1396,8 +1489,9 @@
       try {
         const r = await rest("rpc/organize_my_brain", { method: "POST", body: {} });
         await Store.sync();
-        const n = (r && r.links) || 0, j = (r && r.merged) || 0;
+        const n = (r && r.links) || 0, j = (r && r.merged) || 0, f = (r && r.faded) || 0;
         const parts = [];
+        if (f) parts.push(`${f} ${f === 1 ? "episódio fraco saiu" : "episódios fracos saíram"} do céu`);
         if (j) parts.push(`${j} ${j === 1 ? "repetida juntada" : "repetidas juntadas"}`);
         if (n) parts.push(`${n} ${n === 1 ? "ligação nova" : "ligações novas"}`);
         toast(parts.length ? parts.join(" e ") + "." : "Tudo já estava organizado.");
@@ -1417,11 +1511,47 @@
     return { destroy() { if (replay) clearInterval(replay); off(); g.destroy(); document.removeEventListener("keydown", keys); }, select };
   }
 
-  // ---------------- aprendizado: como o cérebro está crescendo ----------------
+  // ---------------- aprender: metas, revisão e como a memória está ----------------
+  // Uma meta e o que o cérebro já tem dela: notas por nível, quão firme está cada nível (domínio) e o próximo passo.
+  function goalStats(g) {
+    const gk = norm(g.topic);
+    const hits = [...Store.mems.values()].filter((m) => !m.archived && isKnow(m) && m.topic && (norm(m.topic) === gk || norm(m.topic).includes(gk) || gk.includes(norm(m.topic))));
+    const lv = [0, 0, 0, 0, 0, 0], best = [0, 0, 0, 0, 0, 0];
+    for (const m of hits) { const l = m.level || 1; lv[l]++; best[l] = Math.max(best[l], retention(m)); }
+    let mastery = 0, next = 0;
+    for (let l = 1; l <= g.target_level; l++) { mastery += best[l]; if (!next && !lv[l]) next = l; }
+    const weakest = hits.slice().sort((a, b) => retention(a) - retention(b))[0] || null;
+    return { hits, lv, mastery: Math.round((100 * mastery) / g.target_level), next, weakest, due: hits.filter(isDue).length };
+  }
+  // Pedidos de estudo que ele já fez e ainda não viraram meta ("quer que eu aprenda xadrez...").
+  function goalHints() {
+    const have = [...Store.goals.values()].map((g) => norm(g.topic)), out = new Map();
+    for (const m of Store.mems.values()) {
+      if (m.archived || kindOf(m) !== "fato") continue;
+      const hit = /\bquer (?:que (?:eu|a capri) )?aprend\w*\s+(?:a |o |sobre )?(.+?)(?=[,.;:!?]| d[eo] \d| do b[áa]sico| com | para | at[ée] | e (?:um|uma|guard|salv|prev|que)|$)/i.exec(m.content);
+      // O pedido já fala de uma meta que existe (ex.: "multiplicação" dentro do pedido de matemática): não sugere de novo.
+      if (!hit || have.some((h) => norm(m.content).includes(h))) continue;
+      const words = hit[1].trim().split(/\s+/).slice(0, 4).join(" ").replace(/\s+(?:de|do|da|e)$/i, "");
+      const topic = words.charAt(0).toUpperCase() + words.slice(1);
+      const key = norm(topic);
+      if (topic.length < 3 || have.some((h) => h.includes(key) || key.includes(h)) || out.has(key)) continue;
+      out.set(key, { topic, from: m });
+    }
+    return [...out.values()].slice(0, 6);
+  }
+  // Dias seguidos com revisão (hoje ou ontem contam para não quebrar a sequência antes da hora).
+  function streak() {
+    const days = new Set(Store.reviews.map((r) => new Date(r.reviewed_at).toDateString()));
+    let n = 0, d = new Date();
+    if (!days.has(d.toDateString())) d.setDate(d.getDate() - 1);
+    while (days.has(d.toDateString())) { n++; d.setDate(d.getDate() - 1); }
+    return n;
+  }
   function viewLearn(el) {
+    let editingGoal = null;
     const draw = () => {
       const mems = [...Store.mems.values()], n = mems.length, i = stageOf(n), st = STAGES[i], nx = STAGES[i + 1];
-      const know = mems.filter(isKnow), lv = [0, 0, 0, 0, 0, 0];
+      const live = mems.filter((m) => !m.archived), know = live.filter(isKnow), lv = [0, 0, 0, 0, 0, 0];
       for (const m of know) lv[m.level || 0]++;
       const topics = Store.topics(), byCat = new Map();
       for (const m of know) { const c = byCat.get(m.category) || { n: 0, lv: [0, 0, 0, 0, 0, 0] }; c.n++; c.lv[m.level || 0]++; byCat.set(m.category, c); }
@@ -1429,14 +1559,52 @@
       for (const m of mems) { const t = Date.parse(m.created_at); if (t < first) first = t; }
       const day = n ? Math.max(1, Math.floor((Date.now() - first) / 86400000) + 1) : 0;
       const p = nx ? (n - st.min) / (nx.min - st.min) : 1, totalLv = lv.slice(1).reduce((a, b) => a + b, 0) || 1;
+      // hoje
+      const due = Store.due(), week = Store.reviews.filter((r) => Date.now() - Date.parse(r.reviewed_at) < 7 * DAY), right = week.filter((r) => r.grade >= 2).length;
+      const firm = know.length ? Math.round((100 * know.reduce((a, m) => a + retention(m), 0)) / know.length) : 0;
+      const upcoming = know.filter((m) => m.due_at && Date.parse(m.due_at) > Date.now()).sort((a, b) => a.due_at.localeCompare(b.due_at))[0];
+      const heat = [];
+      for (let k = 55; k >= 0; k--) { const d = new Date(Date.now() - k * DAY).toDateString(); heat.push(Store.reviews.filter((r) => new Date(r.reviewed_at).toDateString() === d).length); }
+      // memória por tipo e por força
+      const kinds = Object.keys(KINDS).map((k) => { const list = live.filter((m) => kindOf(m) === k); return { k, n: list.length, f: list.length ? Math.round((100 * list.reduce((a, m) => a + retention(m), 0)) / list.length) : 0 }; });
+      const bands = [0, 0, 0, 0];
+      for (const m of live) { const r = retention(m); bands[r >= 0.9 ? 0 : r >= 0.7 ? 1 : r >= 0.4 ? 2 : 3]++; }
+      const faded = mems.length - live.length, goals = [...Store.goals.values()].sort((a, b) => (a.status === "ativa" ? 0 : a.status === "pausada" ? 1 : 2) - (b.status === "ativa" ? 0 : b.status === "pausada" ? 1 : 2) || a.created_at.localeCompare(b.created_at));
+      const hints = goalHints();
       el.innerHTML = `<div class="page">
-        <h1>Aprendizado</h1><p class="lead">Como o cérebro da Capri está crescendo: o que ela sabe de vocês e tudo que ela estuda, do básico ao especialista. Quanto mais ela aprende, mais o cérebro brilha.</p>
+        <h1>Aprender</h1><p class="lead">Aqui o cérebro vira memória de verdade: metas do que a Capri está aprendendo, revisões no dia certo para nada se perder, e quão firme está cada coisa que ela sabe.</p>
+        <section class="panel today">
+          <div class="today-main"><div><div class="today-n">${due.length}</div><div class="muted">${due.length === 1 ? "estudo para revisar agora" : "estudos para revisar agora"}</div></div>
+            ${due.length ? `<a class="btn primary" href="#/revisar">Revisar agora</a>` : `<span class="faint" style="font-size:13px">${upcoming ? "O próximo volta em " + inTime((Date.parse(upcoming.due_at) - Date.now()) / DAY) + "." : "Nada marcado ainda."}</span>`}</div>
+          <div class="today-nums"><div><b>${streak()}</b><span>${streak() === 1 ? "dia seguido" : "dias seguidos"}</span></div><div><b>${week.length}</b><span>revisões na semana</span></div><div><b>${week.length ? Math.round((100 * right) / week.length) + "%" : "—"}</b><span>de acerto</span></div><div><b>${know.length ? firm + "%" : "—"}</b><span>firmeza dos estudos</span></div></div>
+          <div class="heat" title="Revisões nas últimas 8 semanas">${heat.map((c) => `<i class="h${Math.min(4, c)}"></i>`).join("")}</div>
+        </section>
+
+        <div class="sec-row"><h2 class="sec">Metas de estudo</h2><button class="btn small" id="newGoal">＋ Nova meta</button></div>
+        <form class="panel goal-form hidden" id="goalForm">
+          <div class="grid3"><div><label class="f" for="gTopic">Assunto</label><input class="input" id="gTopic" list="gTopics" maxlength="80" required placeholder="ex.: Inglês, Xadrez, Python"><datalist id="gTopics">${topics.map((t) => `<option value="${esc(t.topic)}"></option>`).join("")}</datalist></div>
+            <div><label class="f" for="gCat">Área</label><select class="input" id="gCat">${CATS.filter((c) => c.g === "k").map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join("")}</select></div>
+            <div><label class="f" for="gLevel">Chegar até</label><select class="input" id="gLevel">${LEVELS.slice(1).map((l, k) => `<option value="${k + 1}"${k + 1 === 3 ? " selected" : ""}>${k + 1} · ${l}</option>`).join("")}</select></div></div>
+          <div><label class="f" for="gWhy">Por quê, ou o que incluir (opcional)</label><input class="input" id="gWhy" maxlength="400" placeholder="ex.: do básico ao avançado, com exercícios"></div>
+          <div class="end"><button class="btn" type="button" id="gCancel">Cancelar</button><button class="btn primary">Salvar meta</button></div>
+        </form>
+        ${hints.length ? `<div class="hints"><span class="faint">Ele já pediu:</span>${hints.map((h, k) => `<button class="chip" data-hint="${k}" title="${esc(h.from.title)}">＋ ${esc(h.topic)}</button>`).join("")}</div>` : ""}
+        ${goals.length ? `<div class="goals">${goals.map((g) => goalCard(g)).join("")}</div>`
+          : `<div class="panel"><b>Nenhuma meta ainda.</b><p class="muted" style="margin:6px 0 0">Uma meta diz o que a Capri deve aprender e até que nível. Ela vê as metas dela, sabe qual é o próximo passo e puxa o assunto nas conversas.</p></div>`}
+
+        <h2 class="sec">Como está a memória</h2>
+        <div class="kinds">${kinds.map((x) => `<a class="kind" href="${x.k === "episodio" ? "#/diario" : "#/memorias?tipo=" + x.k}"><span class="k-i">${KINDS[x.k].icon}</span><b>${x.n}</b><span>${esc(KINDS[x.k].many)}</span><small>${x.n ? "força média " + x.f + "%" : "nenhum"}</small></a>`).join("")}</div>
+        ${live.length ? `<div class="panel"><div class="lvbar">${["#4ade80", "#a3e635", "#fbbf24", "#f87171"].map((c, k) => bands[k] ? `<i style="flex:${bands[k]};--lc:${c}"></i>` : "").join("")}</div>
+          <div class="lvlegend">${["firmes", "boas", "fracas", "quase esquecidas"].map((l, k) => `<span><i style="--lc:${["#4ade80", "#a3e635", "#fbbf24", "#f87171"][k]}"></i>${l} <b>${bands[k]}</b></span>`).join("")}${faded ? `<a class="faint" href="#/diario">esquecidas (fora do céu) <b>${faded}</b></a>` : ""}</div>
+          <p class="faint" style="font-size:13px;margin:10px 0 0">Toda memória enfraquece com o tempo. Cada vez que a Capri lembra de algo numa conversa, ouve de novo ou revisa, ela fica mais forte e demora mais para enfraquecer. Fatos sobre vocês quase não enfraquecem; o diário vai sumindo sozinho.</p></div>` : ""}
+
+        <h2 class="sec">Crescimento</h2>
         <section class="panel grow">
           <div class="grow-top"><div><div class="faint" style="font-size:13px">${day ? "Dia " + day + " · estágio " + (i + 1) + " de " + STAGES.length : "ainda vazio"}</div><h2 class="grow-name">${esc(st.name)}</h2><p class="muted" style="margin:0">${esc(st.line)}</p></div>
-            <div class="grow-nums"><div><b>${n}</b><span>memórias</span></div><div><b>${Store.links.size}</b><span>ligações</span></div><div><b>${know.length}</b><span>conhecimentos</span></div><div><b>${topics.length}</b><span>assuntos</span></div></div></div>
+            <div class="grow-nums"><div><b>${n}</b><span>memórias</span></div><div><b>${Store.links.size}</b><span>ligações</span></div><div><b>${know.length}</b><span>estudos</span></div><div><b>${topics.length}</b><span>assuntos</span></div></div></div>
           <div class="st-bar big"><i style="width:${Math.round(p * 100)}%"></i></div>
           <div class="faint" style="font-size:13px;margin-top:6px">${nx ? `Faltam ${nx.min - n} memórias para virar ${esc(nx.name)}.` : "Chegou ao último estágio."}</div>
-          <ol class="journey">${STAGES.map((s, j) => `<li class="${j < i ? "done" : j === i ? "here" : ""}"><i></i><b>${esc(s.name)}</b><span>${s.min ? s.min + "+" : "início"}</span></li>`).join("")}</ol>
+          <ol class="journey">${STAGES.map((s2, j) => `<li class="${j < i ? "done" : j === i ? "here" : ""}"><i></i><b>${esc(s2.name)}</b><span>${s2.min ? s2.min + "+" : "início"}</span></li>`).join("")}</ol>
         </section>
         <h2 class="sec">Do básico ao especialista</h2>
         ${know.length ? `<div class="panel"><div class="lvbar">${[1, 2, 3, 4, 5].map((l) => lv[l] ? `<i style="flex:${lv[l]};--lc:${LEVEL_COLORS[l]}" title="${LEVELS[l]}: ${lv[l]}"></i>` : "").join("")}</div>
@@ -1444,10 +1612,198 @@
         <h2 class="sec">Áreas</h2>
         <div class="areas">${CATS.filter((c) => c.g === "k" && byCat.get(c.id)).map((c) => { const a = byCat.get(c.id); return `<a class="area" href="#/cerebro?q=" data-cat="${c.id}" style="--cc:${c.color}"><span class="cat"><i style="background:${c.color}"></i>${esc(c.label)}</span><b>${a.n}</b>${ladder(a.lv)}</a>`; }).join("")}</div>
         <h2 class="sec">Assuntos</h2>
-        ${topics.length ? `<div class="panel" style="padding:6px 0"><table class="topics"><tbody>${topics.slice(0, 300).map((t) => `<tr><td><a href="#/cerebro?q=${encodeURIComponent(t.topic)}" class="t">${esc(t.topic)}</a><div class="cat"><i style="background:${catOf(t.cat).color}"></i>${esc(catOf(t.cat).label)}</div></td><td>${ladder(t.levels)}</td><td class="num">${t.top ? levelBadge(t.top) : `<span class="faint">sem nível</span>`}</td><td class="num faint">${t.mems.length} · ${ago(t.updated)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">Nenhum assunto com nome ainda.</p>`}`
+        ${topics.length ? `<div class="panel" style="padding:6px 0"><table class="topics"><tbody>${topics.slice(0, 300).map((t) => { const f = t.mems.reduce((a, m) => a + retention(m), 0) / t.mems.length; return `<tr><td><a href="#/cerebro?q=${encodeURIComponent(t.topic)}" class="t">${esc(t.topic)}</a><div class="cat"><i style="background:${catOf(t.cat).color}"></i>${esc(catOf(t.cat).label)}</div></td><td>${ladder(t.levels)}</td><td class="num">${t.top ? levelBadge(t.top) : `<span class="faint">sem nível</span>`}</td><td class="num"><span class="force" title="Força média ${Math.round(f * 100)}%"><i style="width:${Math.round(f * 100)}%;background:${retColor(f)}"></i></span></td><td class="num faint">${t.mems.length} · ${ago(t.updated)}</td></tr>`; }).join("")}</tbody></table></div>` : `<p class="muted">Nenhum assunto com nome ainda.</p>`}`
         : `<div class="panel"><b>Ela ainda não guardou nenhum estudo.</b><p class="muted" style="margin:6px 0 0">Pergunte alguma coisa para a Capri ("o que é fotossíntese?", "me explica async no C#") ou ensine algo para ela. Ela guarda a explicação aqui, com o assunto e o nível, e vai subindo do básico ao avançado conforme vocês conversam. Você também pode criar um estudo em <a href="#/cerebro">Nova memória</a>, escolhendo assunto e nível.</p></div>`}
       </div>`;
       el.querySelectorAll(".area").forEach((a) => (a.onclick = (e) => { e.preventDefault(); prefs.hidden = CATS.filter((c) => c.id !== a.dataset.cat).map((c) => c.id); prefs.mode = "web"; savePrefs(); location.hash = "#/cerebro"; }));
+      const form = $("#goalForm", el);
+      const openForm = (g, topic) => {
+        editingGoal = g || null;
+        form.classList.remove("hidden");
+        $("#gTopic", el).value = g ? g.topic : topic || "";
+        $("#gCat", el).value = g ? g.category : (() => { const t = Store.topics().find((x) => x.key === norm(topic || "")); return t && catOf(t.cat).g === "k" ? t.cat : "conhecimento"; })();
+        $("#gLevel", el).value = String(g ? g.target_level : 3);
+        $("#gWhy", el).value = g ? g.why || "" : "";
+        $("#gTopic", el).focus();
+      };
+      $("#newGoal", el).onclick = () => openForm(null);
+      $("#gCancel", el).onclick = () => { form.classList.add("hidden"); editingGoal = null; };
+      el.querySelectorAll("[data-hint]").forEach((b) => (b.onclick = () => { const h = hints[+b.dataset.hint]; openForm(null, h.topic); $("#gWhy", el).value = h.from.content.slice(0, 400); }));
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const body = { topic: $("#gTopic", el).value.trim().replace(/\s+/g, " "), category: $("#gCat", el).value, target_level: Number($("#gLevel", el).value), why: $("#gWhy", el).value.trim() || null };
+        const same = Store.topics().find((t) => t.key === norm(body.topic));
+        if (same) body.topic = same.topic;
+        try {
+          const rows = editingGoal ? await rest(`goals?id=eq.${editingGoal.id}`, { method: "PATCH", body, prefer: "return=representation" })
+            : await rest("goals", { method: "POST", body, prefer: "return=representation" });
+          if (rows && rows[0]) Store.goals.set(rows[0].id, rows[0]);
+          toast(editingGoal ? "Meta atualizada." : "Meta criada. A Capri vai ver isso na próxima conversa.");
+          editingGoal = null; draw();
+        } catch (err) { toast(err.code === "23505" ? "Já existe uma meta com esse assunto." : err.message, true); }
+      };
+      el.querySelectorAll("[data-goal]").forEach((card) => {
+        const g = Store.goals.get(card.dataset.goal);
+        if (!g) return;
+        const act = async (body, msg) => {
+          try { const rows = await rest(`goals?id=eq.${g.id}`, { method: "PATCH", body, prefer: "return=representation" }); if (rows && rows[0]) Store.goals.set(g.id, rows[0]); toast(msg); draw(); }
+          catch (err) { toast(err.message, true); }
+        };
+        card.querySelectorAll("[data-ga]").forEach((b) => (b.onclick = async () => {
+          const a = b.dataset.ga;
+          if (a === "edit") openForm(g);
+          else if (a === "pause") act({ status: g.status === "pausada" ? "ativa" : "pausada" }, g.status === "pausada" ? "Meta de volta." : "Meta pausada.");
+          else if (a === "done") act({ status: g.status === "concluida" ? "ativa" : "concluida" }, g.status === "concluida" ? "Meta reaberta." : "Meta concluída! ✦");
+          else if (a === "copy") copy(b.dataset.ask, "Pedido copiado. Cole na conversa com a Capri.");
+          else if (a === "del" && (await ask("Apagar esta meta?", `A meta "${g.topic}" some. Os estudos do assunto continuam no cérebro.`, "Apagar"))) {
+            try { await rest(`goals?id=eq.${g.id}`, { method: "DELETE" }); Store.goals.delete(g.id); toast("Meta apagada."); draw(); } catch (err) { toast(err.message, true); }
+          }
+        }));
+      });
+    };
+    const off = Store.on(draw);
+    if (Store.loaded) draw();
+    return { destroy: off };
+  }
+  function goalCard(g) {
+    const x = goalStats(g), c = catOf(g.category), T = g.target_level;
+    const askFor = x.next ? `Capri, me explica ${g.topic} no nível ${LEVELS[x.next].toLowerCase()}${x.next > 1 ? ", indo além do que você já sabe" : ", do começo"}.` : "";
+    const step = g.status === "concluida" ? `Concluída ${g.done_at ? ago(g.done_at) : ""}.`
+      : x.next ? `Próximo passo: <b>nível ${x.next} · ${LEVELS[x.next]}</b>. Converse com a Capri sobre ${esc(g.topic)} nesse nível; ela guarda o estudo e a meta avança.`
+      : x.weakest && retention(x.weakest) < 0.9 ? `Todos os níveis têm estudo. Para firmar: revisar “${esc(x.weakest.title)}”.`
+      : "Todos os níveis da meta têm estudo e estão firmes. Pode concluir ou subir o nível.";
+    return `<div class="goal panel${g.status !== "ativa" ? " dim" : ""}" data-goal="${g.id}" style="--cc:${c.color}">
+      <div class="g-top"><div><b class="g-name">${esc(g.topic)}</b><span class="cat"><i style="background:${c.color}"></i>${esc(c.label)}</span>${g.status !== "ativa" ? `<span class="g-st">${g.status === "pausada" ? "pausada" : "concluída"}</span>` : ""}</div>
+        <div class="g-pct"><b>${x.mastery}%</b><span>domínio</span></div></div>
+      <div class="g-steps" style="--n:${T}">${[1, 2, 3, 4, 5].slice(0, T).map((l) => `<div class="g-step${x.lv[l] ? " on" : ""}${l === x.next ? " next" : ""}" style="--lc:${LEVEL_COLORS[l]}"><b>${l}</b><span>${LEVELS[l]}</span><small>${x.lv[l] ? x.lv[l] + (x.lv[l] === 1 ? " nota" : " notas") : l === x.next ? "próximo" : "—"}</small></div>`).join("")}</div>
+      <div class="g-bar"><i style="width:${x.mastery}%"></i></div>
+      <p class="g-next">${step}</p>
+      ${g.why ? `<p class="faint g-why">${esc(g.why)}</p>` : ""}
+      <div class="row" style="gap:6px">
+        ${x.hits.length ? `<a class="btn small" href="#/cerebro?q=${encodeURIComponent(g.topic)}">Ver no cérebro</a>` : ""}
+        ${x.due ? `<a class="btn small primary" href="#/revisar?t=${encodeURIComponent(g.topic)}">Revisar ${x.due}</a>` : ""}
+        ${askFor && g.status === "ativa" ? `<button class="btn small" data-ga="copy" data-ask="${esc(askFor)}" title="${esc(askFor)}">Copiar pedido para a Capri</button>` : ""}
+        <span class="spacer"></span>
+        <button class="btn small ghost" data-ga="edit">Editar</button>
+        ${g.status !== "concluida" ? `<button class="btn small ghost" data-ga="pause">${g.status === "pausada" ? "Retomar" : "Pausar"}</button>` : ""}
+        <button class="btn small ghost" data-ga="done">${g.status === "concluida" ? "Reabrir" : "Concluir"}</button>
+        <button class="btn small ghost danger" data-ga="del" aria-label="Apagar meta">✕</button>
+      </div></div>`;
+  }
+
+  // ---------------- revisar: cartões com repetição espaçada ----------------
+  function viewReview(el) {
+    const params = new URLSearchParams(location.hash.split("?")[1] || "");
+    const only = params.get("t"), one = params.get("id");
+    let queue = [], i = 0, shown = false, results = [], practice = false, again = new Set();
+    const fits = (m) => !only || (m.topic && norm(m.topic).includes(norm(only)));
+    const fill = () => {
+      if (one && Store.mems.get(one)) queue = [Store.mems.get(one)];
+      else queue = Store.due().filter(fits);
+      i = 0; results = []; shown = false; again.clear();
+    };
+    const practiceSet = () => [...Store.mems.values()].filter((m) => !m.archived && isKnow(m) && fits(m)).sort((a, b) => retention(a) - retention(b)).slice(0, 12);
+    const draw = () => {
+      if (i >= queue.length) return drawEnd();
+      const m = queue[i], c = catOf(m.category), r = retention(m);
+      const q = m.question || `O que a Capri sabe sobre “${m.title}”?`;
+      el.innerHTML = `<div class="page review">
+        <div class="rv-top"><span class="faint">${only ? esc(only) + " · " : ""}${practice ? "treino · " : ""}${i + 1} de ${queue.length}</span><div class="rv-prog"><i style="width:${Math.round((i / queue.length) * 100)}%"></i></div><a class="btn small ghost" href="#/aprendizado">Sair</a></div>
+        <div class="panel rv-card">
+          <div class="rv-meta"><span class="cat"><i style="background:${c.color}"></i>${esc(c.label)}</span>${m.topic ? `<span class="faint">${esc(m.topic)}</span>` : ""}${levelBadge(m.level)}<span class="spacer"></span><span class="faint" style="font-size:12px">força ${Math.round(r * 100)}%</span></div>
+          <div class="rv-q">${esc(q)}</div>
+          ${shown ? `<div class="rv-a">${m.question ? `<div class="rv-title">${esc(m.title)}</div>` : ""}${esc(m.content)}</div>
+            <div class="rv-ask">Lembrou?</div>
+            <div class="grades">${[["Errei", 0], ["Difícil", 1], ["Lembrei", 2], ["Fácil", 3]].map(([l, g]) => `<button class="grade g${g}" data-g="${g}"><b>${l}</b><small>volta em ${inTime(afterGrade(m, g))}</small><kbd>${g + 1}</kbd></button>`).join("")}</div>`
+            : `<p class="faint" style="margin:0 0 14px">Tente lembrar antes de virar. Responder de cabeça é o que fixa.</p><button class="btn primary big" id="show">Mostrar resposta <kbd>espaço</kbd></button>`}
+          <div class="rv-foot faint">${m.reviews ? `Revisada ${m.reviews}×` : "Primeira revisão"}${m.lapses ? ` · esqueceu ${m.lapses}×` : ""} · <button class="linkbtn" id="edit">Editar${m.question ? "" : " e criar uma pergunta"}</button></div>
+        </div></div>`;
+      const sh = $("#show", el);
+      if (sh) { sh.onclick = () => { shown = true; draw(); }; sh.focus(); }
+      el.querySelectorAll("[data-g]").forEach((b) => (b.onclick = () => grade(+b.dataset.g)));
+      $("#edit", el).onclick = () => openMemory(m);
+    };
+    let busy = false;
+    async function grade(g) {
+      if (busy) return;
+      busy = true;
+      const m = queue[i];
+      try {
+        const r = await rest("rpc/review_memory", { method: "POST", body: { p_id: m.id, p_grade: g } });
+        if (r) {
+          Object.assign(m, { strength: r.strength, due_at: r.due_at, fresh_at: new Date().toISOString(), last_review_at: new Date().toISOString(), reviews: (m.reviews || 0) + 1, lapses: (m.lapses || 0) + (g === 0 ? 1 : 0), archived: false, ease: g === 0 ? Math.max(1.3, (m.ease || 2.5) - 0.2) : g === 1 ? Math.max(1.3, (m.ease || 2.5) - 0.15) : g === 3 ? Math.min(3.5, (m.ease || 2.5) + 0.15) : m.ease });
+          Store.reviews.push({ memory_id: m.id, grade: g, retention: r.was, reviewed_at: new Date().toISOString() });
+        }
+        results.push({ m, g });
+        // Errou: a mesma volta no fim desta sessão, uma vez.
+        if (g === 0 && !again.has(m.id)) { again.add(m.id); queue.push(m); }
+        i++; shown = false; draw(); badge();
+      } catch (err) { toast(err.message, true); }
+      finally { busy = false; }
+    }
+    function drawEnd() {
+      // Uma linha por cartão (o que errou e voltou mostra a última resposta, marcado que errou antes).
+      const last = new Map();
+      for (const x of results) last.set(x.m.id, { m: x.m, g: x.g, missed: (last.get(x.m.id) || {}).missed || x.g === 0 });
+      const ok = [...last.values()].filter((x) => x.g >= 2).length, seen = last.size;
+      const left = practiceSet(), next = [...Store.mems.values()].filter((m) => !m.archived && m.due_at && Date.parse(m.due_at) > Date.now()).sort((a, b) => a.due_at.localeCompare(b.due_at))[0];
+      el.innerHTML = `<div class="page review">
+        ${results.length ? `<div class="panel rv-done"><div class="rv-big">✦</div><h2>Revisão feita</h2><p class="muted">${seen} ${seen === 1 ? "cartão" : "cartões"} · ${ok} ${ok === 1 ? "lembrado" : "lembrados"}${seen - ok ? ` · ${seen - ok} para reforçar` : ""}. Cada um ficou mais forte e volta no dia certo.</p>
+          <ul class="rv-list">${[...last.values()].map((x) => `<li><span class="grade-dot g${x.g}"></span>${esc(x.m.title)}${x.missed && x.g ? `<span class="faint" style="margin-left:0">· errou antes</span>` : ""}<span class="faint">volta em ${inTime((Date.parse(x.m.due_at) - Date.now()) / DAY)}</span></li>`).join("")}</ul></div>`
+        : `<h1>Revisar</h1><p class="lead">A Capri aprende de verdade quando lembra de novo no momento certo, antes de esquecer. Cada estudo volta aqui no dia em que começa a enfraquecer.</p>
+          <div class="panel rv-done"><div class="rv-big">✓</div><h2>Nada para revisar agora</h2><p class="muted">${next ? "O próximo estudo volta em " + inTime((Date.parse(next.due_at) - Date.now()) / DAY) + "." : "Quando ela estudar algo novo, a primeira revisão aparece no dia seguinte."}</p></div>`}
+        ${left.length ? `<div class="panel"><b>Quer treinar mesmo assim?</b><p class="muted" style="margin:6px 0 12px">Os ${left.length} estudos mais fracos${only ? " de " + esc(only) : ""}. Revisar antes da hora conta, mas fortalece menos.</p><button class="btn" id="practice">Treinar ${left.length}</button></div>` : ""}
+        <div class="panel how"><b>Como funciona</b><ol>
+          <li>Leia a pergunta e tente lembrar sozinho.</li>
+          <li>Vire o cartão e diga com sinceridade como foi: <b>Errei</b>, <b>Difícil</b>, <b>Lembrei</b> ou <b>Fácil</b>.</li>
+          <li>O que você lembrou fácil demora mais para voltar; o que errou volta logo. É a curva do esquecimento trabalhando a favor.</li>
+          <li>A Capri também fortalece uma memória toda vez que lembra dela numa conversa, e vê nas metas o que está começando a esquecer.</li></ol></div>
+      </div>`;
+      const pr = $("#practice", el);
+      if (pr) pr.onclick = () => { practice = true; queue = left; i = 0; results = []; again.clear(); draw(); };
+    }
+    const keys = (e) => {
+      if (document.querySelector("dialog[open]") || /input|textarea|select/i.test((e.target && e.target.tagName) || "")) return;
+      if (i >= queue.length) return;
+      if (!shown && (e.key === " " || e.key === "Enter")) { e.preventDefault(); shown = true; draw(); }
+      else if (shown && /^[1-4]$/.test(e.key)) grade(+e.key - 1);
+    };
+    document.addEventListener("keydown", keys);
+    fill(); draw();
+    // Editou o cartão: mostra o texto novo sem perder o lugar.
+    const off = Store.on(() => { if (i < queue.length) { const m = Store.mems.get(queue[i].id); if (m && m !== queue[i]) queue[i] = m; draw(); } });
+    return { destroy() { off(); document.removeEventListener("keydown", keys); } };
+  }
+
+  // ---------------- diário: o que aconteceu ----------------
+  function viewDiary(el) {
+    let showFaded = false;
+    const day = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+    const draw = () => {
+      const all = [...Store.mems.values()].filter((m) => kindOf(m) === "episodio");
+      const faded = all.filter((m) => m.archived).length;
+      const list = all.filter((m) => showFaded || !m.archived).sort((a, b) => (b.happened_at || b.created_at).localeCompare(a.happened_at || a.created_at));
+      const groups = new Map();
+      for (const m of list) { const k = new Date(m.happened_at || m.created_at).toDateString(); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(m); }
+      el.innerHTML = `<div class="page"><h1>Diário</h1><p class="lead">O que aconteceu, dia a dia. Episódios vão perdendo força e saem do céu quando ficam fracos, mas nada é apagado. O que valer para sempre, transforme em fato; o que ensinar alguma coisa, em estudo.</p>
+        <div class="bar"><label class="check"><input type="checkbox" id="faded" ${showFaded ? "checked" : ""}> Mostrar esquecidas <span class="faint">(${faded})</span></label><span class="spacer"></span><span class="faint" style="font-size:13px">${list.length} ${list.length === 1 ? "episódio" : "episódios"}</span></div>
+        ${list.length ? [...groups].map(([k, ms]) => `<h2 class="sec">${esc(day.format(new Date(k)))}</h2><div class="stack" style="gap:10px">${ms.map((m) => `<div class="panel ep${m.archived ? " faded" : ""}" data-id="${m.id}">
+            <div class="row" style="justify-content:space-between;align-items:baseline;gap:10px"><b class="t">${esc(m.title)}</b><span class="faint" style="font-size:12px;white-space:nowrap">${new Date(m.happened_at || m.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+            ${m.content !== m.title ? `<div class="c">${esc(m.content)}</div>` : ""}
+            <div class="row" style="gap:8px;margin-top:10px">${m.archived ? `<span class="faint" style="font-size:12px">esquecida</span>` : force(m)}<span class="spacer"></span>
+              <button class="btn small" data-a="fato" title="Vale para sempre: vira algo que ela sabe">É um fato</button><button class="btn small" data-a="estudo" title="Ensinou alguma coisa: vira estudo com assunto e nível">É estudo</button>
+              ${m.archived ? `<button class="btn small" data-a="wake">Lembrar de novo</button>` : `<button class="btn small ghost" data-a="fade">Esquecer</button>`}<button class="btn small ghost" data-a="edit">Editar</button></div></div>`).join("")}</div>`).join("")
+        : `<div class="panel"><b>${all.length ? "Nada no diário com esse filtro." : "O diário está vazio."}</b><p class="muted" style="margin:6px 0 0">Quando a Capri guarda o que aconteceu numa conversa (e não um fato ou um estudo), aparece aqui.</p></div>`}</div>`;
+      $("#faded", el).onchange = (e) => { showFaded = e.target.checked; draw(); };
+      el.querySelectorAll(".ep [data-a]").forEach((b) => (b.onclick = async () => {
+        const m = Store.mems.get(b.closest(".ep").dataset.id), a = b.dataset.a;
+        if (!m) return;
+        if (a === "fato") setKind(m, "fato");
+        else if (a === "estudo") { const done = await setKind(m, "conhecimento"); if (done) openMemory(done); }
+        else if (a === "wake") wake(m);
+        else if (a === "fade") fade(m);
+        else if (a === "edit") openMemory(m);
+      }));
     };
     const off = Store.on(draw);
     if (Store.loaded) draw();
@@ -1464,7 +1820,7 @@
     if (mems.length > 1500) return [];
     const words = new Map(mems.map((m) => [m.id, wordsOf(m)])), used = new Set(), skip = new Set(prefs.notTwins || []), out = [];
     const close = (a, b) => {
-      if (!!a.level !== !!b.level) return false;
+      if (!!a.level !== !!b.level || kindOf(a) !== kindOf(b) || !!a.archived !== !!b.archived) return false;
       const wa = words.get(a.id), wb = words.get(b.id), small = wa.size <= wb.size ? wa : wb, big = small === wa ? wb : wa;
       if (small.size < 4) return false;
       let shared = 0;
@@ -1483,22 +1839,25 @@
   function viewList(el) {
     el.innerHTML = `<div class="page"><h1>Memórias</h1><p class="lead">Tudo que está no cérebro, em lista. Clique numa linha para editar.</p>
       <div class="bar"><input class="input" id="q" placeholder="Procurar" aria-label="Procurar"><select class="input" id="cat" style="flex:0 1 200px" aria-label="Categoria"><option value="">Todas as categorias</option><option value="__p">Só sobre vocês</option><option value="__k">Só conhecimento</option>${CATS.map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join("")}</select>
-      <select class="input" id="sort" style="flex:0 1 190px" aria-label="Ordem"><option value="new">Mais recentes</option><option value="old">Mais antigas</option><option value="imp">Mais importantes</option><option value="rec">Mais lembradas</option><option value="lvl">Nível (avançado primeiro)</option><option value="top">Assunto (A–Z)</option><option value="abc">Título (A–Z)</option></select>
+      <select class="input" id="kind" style="flex:0 1 170px" aria-label="Tipo"><option value="">Todos os tipos</option>${Object.entries(KINDS).map(([id, k]) => `<option value="${id}">${k.icon} ${esc(k.many)}</option>`).join("")}<option value="__due">Para revisar</option><option value="__faded">Esquecidas</option></select>
+      <select class="input" id="sort" style="flex:0 1 190px" aria-label="Ordem"><option value="new">Mais recentes</option><option value="old">Mais antigas</option><option value="imp">Mais importantes</option><option value="rec">Mais lembradas</option><option value="weak">Mais fracas</option><option value="strong">Mais firmes</option><option value="lvl">Nível (avançado primeiro)</option><option value="top">Assunto (A–Z)</option><option value="abc">Título (A–Z)</option></select>
       <button class="btn primary" id="add">Nova memória</button><button class="btn hidden" id="join">Juntar selecionadas</button><button class="btn danger hidden" id="bulk">Apagar selecionadas</button></div>
       <div id="twins"></div>
-      <div class="panel" style="padding:0;overflow:hidden"><table class="tstack"><thead><tr><th style="width:36px"><input type="checkbox" id="all" aria-label="Selecionar todas"></th><th>Memória</th><th>Categoria</th><th class="num">Nível ou importância</th><th class="num">Mudou</th></tr></thead><tbody id="rows"></tbody></table></div>
+      <div class="panel" style="padding:0;overflow:hidden"><table class="tstack"><thead><tr><th style="width:36px"><input type="checkbox" id="all" aria-label="Selecionar todas"></th><th>Memória</th><th>Categoria</th><th class="num">Nível ou importância</th><th class="num">Força</th><th class="num">Mudou</th></tr></thead><tbody id="rows"></tbody></table></div>
       <p class="faint" id="foot" style="font-size:13px"></p></div>`;
     const picked = new Set();
     const draw = () => {
-      const q = norm($("#q", el).value.trim()), cat = $("#cat", el).value, sort = $("#sort", el).value;
-      const fits = (m) => !cat || (cat === "__k" ? isKnow(m) : cat === "__p" ? !isKnow(m) : m.category === cat);
+      const q = norm($("#q", el).value.trim()), cat = $("#cat", el).value, sort = $("#sort", el).value, kind = $("#kind", el).value;
+      const fits = (m) => (!cat || (cat === "__k" ? isKnow(m) : cat === "__p" ? !isKnow(m) : m.category === cat))
+        && (kind === "__faded" ? m.archived : kind === "__due" ? isDue(m) : !m.archived && (!kind || kindOf(m) === kind));
       let list = [...Store.mems.values()].filter((m) => fits(m) && (!q || norm(m.title).includes(q) || norm(m.content).includes(q) || norm(m.topic).includes(q) || (m.tags || []).some((t) => norm(t).includes(q))));
       const by = { new: (a, b) => b.updated_at.localeCompare(a.updated_at), old: (a, b) => a.created_at.localeCompare(b.created_at), imp: (a, b) => b.importance - a.importance || b.updated_at.localeCompare(a.updated_at), rec: (a, b) => b.recall_count - a.recall_count,
+        weak: (a, b) => retention(a) - retention(b), strong: (a, b) => retention(b) - retention(a),
         lvl: (a, b) => (b.level || 0) - (a.level || 0) || b.updated_at.localeCompare(a.updated_at), top: (a, b) => (a.topic || "\uffff").localeCompare(b.topic || "\uffff", "pt-BR") || (a.level || 0) - (b.level || 0), abc: (a, b) => a.title.localeCompare(b.title, "pt-BR") };
       list.sort(by[sort]);
       const shown = list.slice(0, 600);
-      $("#rows", el).innerHTML = shown.map((m) => { const c = catOf(m.category); return `<tr data-id="${m.id}" style="cursor:pointer"><td><input type="checkbox" data-pick="${m.id}" ${picked.has(m.id) ? "checked" : ""} aria-label="Selecionar"></td><td><div class="t">${esc(m.title)}</div><div class="c">${esc(m.content)}</div></td><td><span class="cat"><i style="background:${c.color}"></i>${esc(c.label)}</span>${m.topic ? `<div class="faint" style="font-size:12px;margin-top:3px">${esc(m.topic)}</div>` : ""}</td><td class="num">${m.level ? levelBadge(m.level) : `<span class="stars">${stars(m.importance)}</span>`}</td><td class="num faint">${ago(m.updated_at)}</td></tr>`; }).join("")
-        || `<tr><td colspan="5" class="muted" style="padding:28px;text-align:center">${Store.mems.size ? "Nada com esse filtro." : "Nenhuma memória ainda."}</td></tr>`;
+      $("#rows", el).innerHTML = shown.map((m) => { const c = catOf(m.category); return `<tr data-id="${m.id}" style="cursor:pointer"><td><input type="checkbox" data-pick="${m.id}" ${picked.has(m.id) ? "checked" : ""} aria-label="Selecionar"></td><td><div class="t">${esc(m.title)}</div><div class="c">${esc(m.content)}</div></td><td><span class="cat"><i style="background:${c.color}"></i>${esc(c.label)}</span><div class="faint" style="font-size:12px;margin-top:3px">${KINDS[kindOf(m)].icon} ${esc(KINDS[kindOf(m)].label)}</div>${m.topic ? `<div class="faint" style="font-size:12px;margin-top:3px">${esc(m.topic)}</div>` : ""}</td><td class="num">${m.level ? levelBadge(m.level) : `<span class="stars">${stars(m.importance)}</span>`}</td><td class="num">${m.archived ? `<span class="faint" style="font-size:12px">esquecida</span>` : force(m)}${isDue(m) ? `<div class="duetag">revisar</div>` : ""}</td><td class="num faint">${ago(m.updated_at)}</td></tr>`; }).join("")
+        || `<tr><td colspan="6" class="muted" style="padding:28px;text-align:center">${Store.mems.size ? "Nada com esse filtro." : "Nenhuma memória ainda."}</td></tr>`;
       $("#foot", el).textContent = list.length > shown.length ? `Mostrando ${shown.length} de ${list.length}. Use a busca para achar o resto.` : `${list.length} ${list.length === 1 ? "memória" : "memórias"}.`;
       $("#bulk", el).classList.toggle("hidden", picked.size === 0);
       $("#join", el).classList.toggle("hidden", picked.size < 2);
@@ -1506,7 +1865,8 @@
       drawTwins();
       $("#bulk", el).textContent = `Apagar ${picked.size} ${picked.size === 1 ? "selecionada" : "selecionadas"}`;
     };
-    ["input", "change"].forEach((ev) => { $("#q", el).addEventListener(ev, draw); $("#cat", el).addEventListener(ev, draw); $("#sort", el).addEventListener(ev, draw); });
+    { const t = new URLSearchParams(location.hash.split("?")[1] || "").get("tipo"); if (t) $("#kind", el).value = t; }
+    ["input", "change"].forEach((ev) => { $("#q", el).addEventListener(ev, draw); $("#cat", el).addEventListener(ev, draw); $("#sort", el).addEventListener(ev, draw); $("#kind", el).addEventListener(ev, draw); });
     $("#rows", el).addEventListener("click", (e) => {
       const box = e.target.closest("[data-pick]");
       if (box) { box.checked ? picked.add(box.dataset.pick) : picked.delete(box.dataset.pick); draw(); return; }
@@ -1603,7 +1963,7 @@
   -H "x-capri-key: cap_SUA_CHAVE" \\
   -H "Content-Type: application/json" \\
   -d '{"action":"ping"}'</pre></div>
-        <div class="panel"><b>O que ela guarda aqui</b><p class="muted" style="margin:6px 0 0">As notas que ela faz sobre você, as memórias que ela tira das conversas, as respostas do "me conhece", o resumo do que vocês leram juntos. E tudo que ela estuda: quando você pergunta ou ensina alguma coisa, ela guarda a explicação com o assunto e o nível (do básico ao especialista), e cada assunto vira uma trilha. Endereços, números de documento e senhas nunca saem do PC. Antes de responder, ela pergunta ao cérebro o que sabe sobre o assunto.</p></div>
+        <div class="panel"><b>O que ela guarda aqui</b><p class="muted" style="margin:6px 0 0">As notas que ela faz sobre você, as memórias que ela tira das conversas, as respostas do "me conhece", o resumo do que vocês leram juntos. E tudo que ela estuda: quando você pergunta ou ensina alguma coisa, ela guarda a explicação com o assunto, o nível (do básico ao especialista) e uma pergunta para revisar, e cada assunto vira uma trilha. O que é fato fica firme; o diário vai enfraquecendo; os estudos voltam para revisão no dia certo, e ela vê as metas de estudo e o que está começando a esquecer. Endereços, números de documento e senhas nunca saem do PC. Antes de responder, ela pergunta ao cérebro o que sabe sobre o assunto.</p></div>
       </div></div>`;
     $("#cp", el).onclick = () => copy(CFG.api);
     return {};
@@ -1659,7 +2019,16 @@
   });
 
   // ---------------- rotas ----------------
-  const VIEWS = { cerebro: viewGraph, aprendizado: viewLearn, memorias: viewList, chaves: viewKeys, conectar: viewConnect, conta: viewAccount };
+  const VIEWS = { cerebro: viewGraph, aprendizado: viewLearn, revisar: viewReview, diario: viewDiary, memorias: viewList, chaves: viewKeys, conectar: viewConnect, conta: viewAccount };
+  // Quantos estudos estão na hora de revisar, na aba.
+  function badge() {
+    const b = $("#dueBadge");
+    if (!b) return;
+    const n = Store.loaded ? Store.due().length : 0;
+    b.textContent = n > 99 ? "99+" : String(n);
+    b.classList.toggle("hidden", !n);
+  }
+  Store.on(badge);
   let shownRoute = null;
   async function route() {
     const r = location.hash.replace(/^#\/?/, "").split(/[?/]/)[0];
@@ -1682,19 +2051,21 @@
     $("#landing").classList.add("hidden");
     $("#app").classList.remove("hidden");
     document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.dataset.r === r));
-    if (shownRoute === r && current) return;
+    // Revisar com outro filtro (?t= ou ?id=) monta a sessão de novo.
+    if (shownRoute === r && current && r !== "revisar") return;
     if (current) { current.destroy && current.destroy(); current = null; }
     shownRoute = r;
     view.className = "view";
     who();
-    if (!Store.loaded && (r === "cerebro" || r === "memorias" || r === "aprendizado")) {
+    if (!Store.loaded && ["cerebro", "memorias", "aprendizado", "revisar", "diario"].includes(r)) {
       loadingState(view);
       try { await Store.load(); } catch (err) { failState(view, err); return; }
       if (shownRoute !== r) return;
     } else if (!Store.loaded) Store.load().catch(() => {});
     view.innerHTML = "";
     current = VIEWS[r](view) || {};
-    document.title = ({ cerebro: "Cérebro", aprendizado: "Aprendizado", memorias: "Memórias", chaves: "Chaves da Capri", conectar: "Conectar a Capri", conta: "Conta" })[r] + " · Cérebro da Capri";
+    badge();
+    document.title = ({ cerebro: "Cérebro", aprendizado: "Aprender", revisar: "Revisar", diario: "Diário", memorias: "Memórias", chaves: "Chaves da Capri", conectar: "Conectar a Capri", conta: "Conta" })[r] + " · Cérebro da Capri";
   }
   window.addEventListener("hashchange", route);
   Auth.load();

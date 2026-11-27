@@ -265,6 +265,96 @@ table.topics a.t:hover{color:var(--lilac)}
   table.tstack td{border:0;padding:4px 8px}
   table.tstack td.num{text-align:left}
 }
+/* memória e aprendizado */
+.spacer{flex:1}
+.badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:4px;border-radius:999px;background:var(--violet);color:#fff;font-size:11px;font-weight:600;vertical-align:1px}
+.force{display:inline-block;width:64px;height:6px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;vertical-align:middle}
+.force i{display:block;height:100%;border-radius:4px}
+.duetag{font-size:11px;color:var(--violet2);margin-top:3px}
+.input.small{min-height:32px;padding:4px 8px;font-size:13px;width:auto;border-radius:8px}
+.membox{padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--line)}
+.membox .force{width:100%;height:7px;margin-top:8px}
+kbd{font:500 11px/1 var(--mono);padding:3px 5px;border-radius:5px;border:1px solid var(--line2);color:var(--faint);background:rgba(0,0,0,.2)}
+.btn kbd{color:rgba(255,255,255,.7);border-color:rgba(255,255,255,.3)}
+.linkbtn{background:none;border:0;padding:0;color:var(--violet2);cursor:pointer;font-size:inherit}
+label.check{display:inline-flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.sec-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.grid3{display:grid;grid-template-columns:2fr 1.3fr 1.2fr;gap:12px}
+.goal-form{display:grid;gap:12px;margin-bottom:12px}
+.goal-form .end{display:flex;justify-content:flex-end;gap:8px}
+.hints{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px;font-size:13px}
+.hints .chip{backdrop-filter:none;background:rgba(139,92,246,.1);border-color:rgba(139,92,246,.35)}
+.today{display:grid;grid-template-columns:auto 1fr;gap:18px 28px;align-items:center;background:radial-gradient(ellipse at 0% 0%,rgba(139,92,246,.16),transparent 60%),var(--bg2)}
+.today-main{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.today-n{font:400 64px/1 var(--serif);color:var(--lilac)}
+.today-nums{display:flex;gap:24px;flex-wrap:wrap;justify-content:flex-end}
+.today-nums div{display:grid}
+.today-nums b{font:500 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.today-nums span{font-size:12px;color:var(--faint)}
+.heat{grid-column:1/-1;display:grid;grid-template-columns:repeat(56,1fr);gap:3px}
+.heat i{aspect-ratio:1;border-radius:3px;background:rgba(255,255,255,.05);max-height:14px}
+.heat .h1{background:rgba(139,92,246,.35)}.heat .h2{background:rgba(139,92,246,.55)}.heat .h3{background:rgba(139,92,246,.75)}.heat .h4{background:var(--violet2)}
+.goals{display:grid;gap:12px}
+.goal{display:grid;gap:12px;background:radial-gradient(ellipse at 100% 0%,color-mix(in srgb,var(--cc) 14%,transparent),transparent 60%),var(--bg2)}
+.goal.dim{opacity:.62}
+.g-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.g-top>div:first-child{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}
+.g-name{font:400 28px/1.05 var(--serif)}
+.g-st{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--dim)}
+.g-pct{display:grid;text-align:right}.g-pct b{font:500 24px/1 var(--sans)}.g-pct span{font-size:12px;color:var(--faint)}
+.g-steps{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:6px}
+.g-step{display:grid;gap:2px;padding:8px 10px;border-radius:10px;border:1px dashed var(--line2);color:var(--faint);font-size:12px}
+.g-step b{font:500 15px/1 var(--sans)}
+.g-step.on{border-style:solid;border-color:color-mix(in srgb,var(--lc) 60%,transparent);background:color-mix(in srgb,var(--lc) 14%,transparent);color:var(--ink)}
+.g-step.on b{color:var(--lc)}
+.g-step.next{border-color:var(--violet2);color:var(--lilac);box-shadow:0 0 0 3px rgba(139,92,246,.15)}
+.g-step small{font-size:11px;color:var(--faint)}
+.g-bar{height:6px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden}
+.g-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--violet),var(--cc));border-radius:4px}
+.g-next{margin:0;font-size:14px}.g-why{margin:0;font-size:13px}
+.kinds{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.kind{display:grid;gap:2px;padding:14px 16px;border-radius:14px;background:var(--bg2);border:1px solid var(--line);color:var(--ink)}
+.kind:hover{border-color:var(--line2);color:var(--ink)}
+.kind .k-i{color:var(--violet2);font-size:18px}.kind b{font:500 26px/1.1 var(--sans)}.kind span{font-size:14px}.kind small{font-size:12px;color:var(--faint)}
+.review{max-width:720px}
+.rv-top{display:flex;align-items:center;gap:12px;margin-bottom:14px;font-size:13px}
+.rv-prog{flex:1;height:5px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden}
+.rv-prog i{display:block;height:100%;background:var(--violet)}
+.rv-card{display:grid;gap:16px;padding:26px;min-height:340px;align-content:start}
+.rv-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px}
+.rv-q{font:400 clamp(26px,4vw,34px)/1.15 var(--serif);text-wrap:balance}
+.rv-a{padding:16px 18px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid var(--line);font-size:16px;line-height:1.6;white-space:pre-wrap;animation:fadein .25s ease both}
+.rv-title{font-weight:600;margin-bottom:6px}
+.rv-ask{font-size:13px;color:var(--faint)}
+.btn.big{min-height:52px;font-size:16px;padding:0 22px;justify-self:start}
+.grades{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.grade{display:grid;gap:3px;justify-items:center;padding:12px 8px;border-radius:12px;border:1px solid var(--line2);background:rgba(255,255,255,.03);cursor:pointer;color:var(--ink)}
+.grade:hover{background:rgba(255,255,255,.07)}
+.grade b{font-size:15px}.grade small{font-size:12px;color:var(--faint)}
+.grade.g0{border-color:rgba(248,113,113,.4)}.grade.g0 b{color:#fca5a5}
+.grade.g1{border-color:rgba(251,191,36,.35)}.grade.g1 b{color:#fcd34d}
+.grade.g2{border-color:rgba(74,222,128,.35)}.grade.g2 b{color:#86efac}
+.grade.g3{border-color:rgba(96,165,250,.4)}.grade.g3 b{color:#93c5fd}
+.rv-foot{font-size:12px}
+.rv-done{text-align:center;display:grid;gap:4px;justify-items:center;margin-bottom:12px}
+.rv-done h2{font:400 32px/1.1 var(--serif);margin:0}
+.rv-big{font-size:34px;color:var(--violet2)}
+.rv-list{list-style:none;padding:0;margin:12px 0 0;display:grid;gap:6px;width:100%;text-align:left}
+.rv-list li{display:flex;gap:10px;align-items:center;font-size:14px}.rv-list li .faint{margin-left:auto;font-size:12px;white-space:nowrap}
+.grade-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.grade-dot.g0{background:#f87171}.grade-dot.g1{background:#fbbf24}.grade-dot.g2{background:#4ade80}.grade-dot.g3{background:#60a5fa}
+.how{margin-top:12px}.how ol{margin:8px 0 0;padding-left:20px;color:var(--dim);display:grid;gap:4px;font-size:14px}
+.ep .t{font-size:15px}.ep .c{color:var(--dim);font-size:14px;margin-top:4px}
+.ep.faded{opacity:.55}
+@keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+@media(max-width:720px){
+  .today{grid-template-columns:1fr}.today-nums{justify-content:flex-start}
+  .grid3{grid-template-columns:1fr}
+  .kinds{grid-template-columns:repeat(2,1fr)}
+  .grades{grid-template-columns:repeat(2,1fr)}
+  .g-steps{grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:4px}.g-step{padding:6px}.g-step span{display:none}
+  .rv-card{padding:18px}
+}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -306,7 +396,9 @@ table.topics a.t:hover{color:var(--lilac)}
     <a class="brand" href="#/cerebro"><i></i><span>Cérebro da Capri</span></a>
     <nav class="tabs" id="tabs">
       <a href="#/cerebro" data-r="cerebro">Cérebro</a>
-      <a href="#/aprendizado" data-r="aprendizado">Aprendizado</a>
+      <a href="#/aprendizado" data-r="aprendizado">Aprender</a>
+      <a href="#/revisar" data-r="revisar">Revisar <span class="badge hidden" id="dueBadge"></span></a>
+      <a href="#/diario" data-r="diario">Diário</a>
       <a href="#/memorias" data-r="memorias">Memórias</a>
       <a href="#/chaves" data-r="chaves">Chaves da Capri</a>
       <a href="#/conectar" data-r="conectar">Conectar</a>
@@ -330,7 +422,11 @@ table.topics a.t:hover{color:var(--lilac)}
       <div><label class="f" for="mfTopic">Assunto (para estudos)</label><input class="input" id="mfTopic" list="topicList" maxlength="80" placeholder="ex.: Fotossíntese" autocomplete="off"><datalist id="topicList"></datalist></div>
       <div><label class="f" for="mfLevel">Nível</label><select class="input" id="mfLevel"></select></div>
     </div>
-    <div><label class="f" for="mfTags">Etiquetas, separadas por vírgula</label><input class="input" id="mfTags" placeholder="manhwa, romance"></div>
+    <div class="grid2">
+      <div><label class="f" for="mfKind">Tipo</label><select class="input" id="mfKind"></select></div>
+      <div><label class="f" for="mfTags">Etiquetas, separadas por vírgula</label><input class="input" id="mfTags" placeholder="manhwa, romance"></div>
+    </div>
+    <div><label class="f" for="mfQ">Pergunta para revisar (opcional)</label><input class="input" id="mfQ" maxlength="300" placeholder="ex.: Qual a diferença entre autenticação e autorização?"></div>
     <div class="err" id="mfErr" role="alert" style="color:var(--bad);font-size:14px"></div>
     <div class="end"><button class="btn" type="button" id="mfCancel">Cancelar</button><button class="btn primary" id="mfSave" value="ok">Salvar</button></div>
   </form>
@@ -354,7 +450,7 @@ table.topics a.t:hover{color:var(--lilac)}
 </dialog>
 
 <div id="toasts" aria-live="polite"></div>
-<script src="space.js?v=3d4"></script>
-<script src="app.js?v=3d4"></script>
+<script src="space.js?v=mem1"></script>
+<script src="app.js?v=mem1"></script>
 </body>
 </html>
