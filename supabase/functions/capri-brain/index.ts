@@ -2,6 +2,8 @@
 // Toda chamada é POST com JSON {"action": ...}. A Capri se identifica com o cabeçalho x-capri-key (chave cap_...).
 // Conhecimento: remember aceita "level" (1 básico .. 5 especialista) e "topic" (o assunto); memórias do mesmo assunto
 // viram uma trilha (a mais funda "aprofunda" a de baixo). "topics" lista os assuntos e quantas há em cada nível.
+// Uma memória quase igual a outra que já existe vira uma só (fica a mais completa); "organize" faz isso no cérebro todo.
+// Toda ação mexe só no cérebro do dono da chave.
 // A ação "register" (cadastro pelo site) não precisa de chave: cria a conta já confirmada.
 // Publicada com verify_jwt = false (a própria função confere a chave).
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -86,7 +88,7 @@ async function remember(user: string, item: any) {
       if (await rpc("brain_link", { p_user: user, p_from: r.id, p_to: to, p_relation: str(l?.relation, 60) || "relacionado", p_auto: false })) linked++;
     }
   }
-  return { id: r.id, title: r.title, category: r.category, level: r.level ?? null, topic: r.topic ?? null, created: r.created, linked };
+  return { id: r.id, title: r.title, category: r.category, level: r.level ?? null, topic: r.topic ?? null, created: r.created, merged: !!r.merged, linked };
 }
 
 // deno-lint-ignore no-explicit-any
@@ -163,6 +165,16 @@ Deno.serve(async (req) => {
       }
       case "categories":
         return reply(200, { ok: true, categories: await rpc("brain_categories", { p_user: user }) });
+      case "organize": {
+        // Junta as memórias repetidas e liga as parecidas, só neste cérebro.
+        const merged = await rpc("brain_consolidate", { p_user: user });
+        return reply(200, { ok: true, merged });
+      }
+      case "merge": {
+        const keep = str(body?.keep, 60), drop = Array.isArray(body?.drop) ? body.drop.map((d: unknown) => str(d, 60)).filter((d: string) => /^[0-9a-f-]{36}$/i.test(d)).slice(0, 50) : [];
+        if (!/^[0-9a-f-]{36}$/i.test(keep) || !drop.length) return fail(400, "diga keep e drop (ids)");
+        return reply(200, { ok: true, merged: await rpc("brain_merge", { p_user: user, p_keep: keep, p_drop: drop }) });
+      }
       case "topics":
         return reply(200, { ok: true, topics: await rpc("brain_topics", { p_user: user, p_limit: int(body?.limit, 60, 1, 200) }) });
       default:

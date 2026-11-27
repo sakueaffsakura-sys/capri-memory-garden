@@ -248,7 +248,8 @@
       this.bg = this.makeSky();
       this.frame = this.frame.bind(this);
       this.ro = new ResizeObserver(() => this.resize()); this.ro.observe(canvas);
-      canvas.addEventListener("webglcontextlost", (e) => { e.preventDefault(); this.lost = true; if (opt.onLost) opt.onLost(); });
+      // Só é problema se o navegador derrubou o 3D com a página aberta; ao sair da página é a própria vista que solta o 3D.
+      canvas.addEventListener("webglcontextlost", (e) => { e.preventDefault(); if (this.dead) return; this.lost = true; if (opt.onLost) opt.onLost(); });
       this.bind(); this.resize();
       this.raf = requestAnimationFrame(this.frame);
     }

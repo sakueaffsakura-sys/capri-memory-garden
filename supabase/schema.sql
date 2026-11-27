@@ -383,3 +383,8 @@ revoke execute on function public.handle_new_user(), public.memories_touch() fro
 --   memory_links_guard: ligação só entre duas memórias do mesmo dono da ligação (vale para site, API e gatilhos);
 --   memories_owner_fixed: uma memória não muda de dono;
 --   brain_recall: os títulos ligados também filtrados pelo dono; organize_my_brain sem acesso para anon.
+
+-- 27/11: memórias repetidas (migração "juntar_memorias_repetidas"): brain_overlap (quanto da menor está na outra),
+--   brain_twin (a quase igual que já existe), brain_merge (junta: herda ligações, etiquetas, menções, lembranças),
+--   brain_consolidate (junta todas as repetidas de um cérebro). brain_remember junta na hora uma quase igual (fica a
+--   mais completa). organize_my_brain também junta as repetidas; merge_my_memories para juntar à mão pelo site.

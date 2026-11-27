@@ -1180,7 +1180,8 @@
         <div class="spacer"></div>
         <div class="actions">
           <button class="btn primary" id="add"><span>＋</span><span class="lbl">Nova memória</span></button>
-          <button class="btn" id="org" title="Liga as memórias parecidas que ainda não estão ligadas"><span>✦</span><span class="lbl">Organizar</span></button>
+          <button class="btn" id="grow" title="Ver o cérebro crescer desde o primeiro dia"><span>▶</span><span class="lbl">Ver crescer</span></button>
+          <button class="btn" id="org" title="Junta as memórias repetidas e liga as parecidas"><span>✦</span><span class="lbl">Organizar</span></button>
           <button class="btn" id="exp" title="Baixar tudo em JSON"><span>⤓</span><span class="lbl">Exportar</span></button>
         </div>
       </div>
@@ -1192,21 +1193,27 @@
       <div class="hint3d" id="hint3d">Arraste para girar · role para aproximar · botão direito move · dois cliques no vazio mostram tudo</div>`;
     const hiddenCats = new Set(prefs.hidden || []);
     let showHubs = prefs.hubs !== false, colors = prefs.colors !== false, query = "", selectedId = null, mode = prefs.mode === "levels" ? "levels" : "web";
+    let upto = null, replay = null;
+    const replayBorn = new Map();
     const tip = $("#tip", el), side = $("#side", el);
     // 3D quando o navegador consegue (WebGL); senão, o grafo plano de antes.
-    const three = prefs.dim !== "2d" && window.Space && Space.ok(), theme = prefs.theme === "light" ? "light" : "dark";
+    const three = prefs.view3d !== "2d" && window.Space && Space.ok(), theme = prefs.theme === "light" ? "light" : "dark";
     el.classList.toggle("light", three && theme === "light");
     const Engine = three ? Space : Graph;
     const g = new Engine($("canvas", el), {
       colors, mode, theme, spin: prefs.spin !== false,
       cats: CATS.map((c) => c.id), color: (cat) => CAT_RGB01.get(cat) || CAT_RGB01.get("outros"),
       levelColors: LEVEL_COLORS.map((h) => (h ? rgb(h).map((v) => v / 255) : null)), levelHex: LEVEL_COLORS, levelNames: LEVELS,
-      onLost() { prefs.dim = "2d"; savePrefs(); toast("O 3D travou neste navegador; voltei para o plano.", true); shownRoute = null; route(); },
+      onLost() { prefs.view3d = "2d"; savePrefs(); toast("O 3D travou neste navegador; voltei para o plano.", true); shownRoute = null; route(); },
       size: () => Store.mems.size,
       caption() {
         if (!Store.mems.size) return null;
         let first = Infinity;
         for (const m of Store.mems.values()) { const t = Date.parse(m.created_at); if (t < first) first = t; }
+        if (upto) {
+          const n = [...Store.mems.values()].filter((m) => Date.parse(m.created_at) <= upto).length;
+          return { big: "Dia " + Math.max(1, Math.floor((upto - first) / 86400000) + 1), small: `${new Date(upto).toLocaleString("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })} · ${n} ${n === 1 ? "bolinha" : "bolinhas"}` };
+        }
         const day = Math.max(1, Math.floor((Date.now() - first) / 86400000) + 1), n = Store.mems.size;
         return { big: "Dia " + day, small: `${STAGES[stageOf(n)].name} · ${n} ${n === 1 ? "bolinha" : "bolinhas"} · ${Store.links.size} ${Store.links.size === 1 ? "ligação" : "ligações"}` };
       },
@@ -1246,14 +1253,14 @@
     function build(reheat) {
       const counts = new Map();
       for (const m of Store.mems.values()) counts.set(m.category, (counts.get(m.category) || 0) + 1);
-      const shown = [...Store.mems.values()].filter((m) => !hiddenCats.has(m.category));
+      const shown = [...Store.mems.values()].filter((m) => !hiddenCats.has(m.category) && (!upto || Date.parse(m.created_at) <= upto));
       const keep = new Set(shown.map((m) => m.id)), deg = new Map(), edges = [];
       for (const l of Store.links.values()) {
         if (!keep.has(l.source_id) || !keep.has(l.target_id)) continue;
         edges.push({ a: l.source_id, b: l.target_id, trail: TRAIL.has(l.relation) });
         deg.set(l.source_id, (deg.get(l.source_id) || 0) + 1); deg.set(l.target_id, (deg.get(l.target_id) || 0) + 1);
       }
-      const nodes = shown.map((m) => ({ id: m.id, kind: "m", cat: m.category, label: m.title, imp: m.importance, level: m.level || 0, know: isKnow(m), recalls: m.recall_count || 0, deg: deg.get(m.id) || 0, born: Store.born.get(m.id) }));
+      const nodes = shown.map((m) => ({ id: m.id, kind: "m", cat: m.category, label: m.title, imp: m.importance, level: m.level || 0, know: isKnow(m), recalls: m.recall_count || 0, deg: deg.get(m.id) || 0, born: replayBorn.get(m.id) || Store.born.get(m.id) }));
       if (showHubs) {
         const perCat = new Map();
         for (const m of shown) { perCat.set(m.category, (perCat.get(m.category) || 0) + 1); edges.push({ a: m.id, b: "hub:" + m.category, hub: true }); }
@@ -1346,7 +1353,7 @@
       if (!b) return;
       if (b.dataset.c === "__colors") { colors = !colors; prefs.colors = colors; g.colors = colors; g.dirty = true; savePrefs(); build(0); return; }
       // Trocar 2D/3D monta a vista de novo; fundo e giro mudam na hora.
-      if (b.dataset.c === "__3d") { prefs.dim = three ? "2d" : "3d"; savePrefs(); shownRoute = null; route(); return; }
+      if (b.dataset.c === "__3d") { prefs.view3d = three ? "2d" : "3d"; savePrefs(); shownRoute = null; route(); return; }
       if (b.dataset.c === "__light") { prefs.theme = theme === "light" ? "dark" : "light"; savePrefs(); shownRoute = null; route(); return; }
       if (b.dataset.c === "__spin") { prefs.spin = prefs.spin === false; savePrefs(); g.spin = prefs.spin; build(0); return; }
       if (b.dataset.c === "__hubs") { showHubs = !showHubs; prefs.hubs = showHubs; }
@@ -1355,6 +1362,33 @@
     });
     $("#add", el).onclick = () => openMemory(null);
     $("#add2", el).onclick = () => openMemory(null);
+    // Ver crescer: o cérebro volta ao primeiro dia e vai ganhando as estrelas na ordem em que nasceram.
+    $("#grow", el).onclick = (e) => {
+      const b = e.currentTarget;
+      if (replay) { stopReplay(); return; }
+      const times = [...Store.mems.values()].map((m) => Date.parse(m.created_at)).sort((a, c) => a - c);
+      if (times.length < 2) { toast("Ainda tem pouca coisa para ver crescer."); return; }
+      const t0 = times[0], t1 = times[times.length - 1], ms = Math.min(24000, 5000 + times.length * 60), start = performance.now();
+      let seen = new Set();
+      g.touched = false; g.fitted = 1;
+      b.querySelector(".lbl").textContent = "Parar"; b.firstElementChild.textContent = "■";
+      replay = setInterval(() => {
+        const p = Math.min(1, (performance.now() - start) / ms), ease = p * p * (3 - 2 * p);
+        upto = t0 + (t1 - t0) * ease + 1;
+        const now = performance.now(), fresh = [];
+        for (const m of Store.mems.values()) if (Date.parse(m.created_at) <= upto && !seen.has(m.id)) { seen.add(m.id); replayBorn.set(m.id, now); fresh.push(m.id); }
+        if (fresh.length) { build(0.35); fresh.slice(0, 3).forEach((id) => g.fire(id)); }
+        else g.dirty = true;
+        if (p >= 1) stopReplay(true);
+      }, 140);
+    };
+    function stopReplay(done) {
+      clearInterval(replay); replay = null; upto = null;
+      const b = $("#grow", el);
+      b.querySelector(".lbl").textContent = "Ver crescer"; b.firstElementChild.textContent = "▶";
+      build(0.2);
+      if (done) g.celebrate();
+    }
     $("#exp", el).onclick = exportAll;
     $("#org", el).onclick = async (e) => {
       const b = e.currentTarget;
@@ -1362,8 +1396,11 @@
       try {
         const r = await rest("rpc/organize_my_brain", { method: "POST", body: {} });
         await Store.sync();
-        const n = (r && r.links) || 0;
-        toast(n ? `${n} ${n === 1 ? "ligação nova" : "ligações novas"}.` : "Tudo já estava organizado.");
+        const n = (r && r.links) || 0, j = (r && r.merged) || 0;
+        const parts = [];
+        if (j) parts.push(`${j} ${j === 1 ? "repetida juntada" : "repetidas juntadas"}`);
+        if (n) parts.push(`${n} ${n === 1 ? "ligação nova" : "ligações novas"}`);
+        toast(parts.length ? parts.join(" e ") + "." : "Tudo já estava organizado.");
       } catch (err) { toast(err.message, true); }
       finally { b.disabled = false; }
     };
@@ -1377,7 +1414,7 @@
       const asked = new URLSearchParams(location.hash.split("?")[1] || "").get("q");
       if (asked) { $("#q", el).value = query = asked; const ids = applySearch(); if (ids.length) setTimeout(() => g.fit(ids), 1400); }
     }
-    return { destroy() { off(); g.destroy(); document.removeEventListener("keydown", keys); }, select };
+    return { destroy() { if (replay) clearInterval(replay); off(); g.destroy(); document.removeEventListener("keydown", keys); }, select };
   }
 
   // ---------------- aprendizado: como o cérebro está crescendo ----------------
@@ -1417,11 +1454,38 @@
     return { destroy: off };
   }
 
+  // As palavras que importam de uma memória (sem acento, 4 letras ou mais).
+  const wordsOf = (m) => new Set(norm(m.title + " " + m.content).split(/[^a-z0-9]+/).filter((w) => w.length >= 4));
+  const twinKey = (g) => g.map((m) => m.id).sort().join("+");
+  // Grupos de memórias que dizem quase a mesma coisa: 70% das palavras da menor estão na outra. Cada grupo gira em
+  // volta de uma memória (sem corrente de "parecida da parecida"), com no máximo 6.
+  function twinGroups() {
+    const mems = [...Store.mems.values()].sort((a, b) => b.content.length - a.content.length);
+    if (mems.length > 1500) return [];
+    const words = new Map(mems.map((m) => [m.id, wordsOf(m)])), used = new Set(), skip = new Set(prefs.notTwins || []), out = [];
+    const close = (a, b) => {
+      if (!!a.level !== !!b.level) return false;
+      const wa = words.get(a.id), wb = words.get(b.id), small = wa.size <= wb.size ? wa : wb, big = small === wa ? wb : wa;
+      if (small.size < 4) return false;
+      let shared = 0;
+      for (const w of small) if (big.has(w)) shared++;
+      return shared / small.size >= 0.7;
+    };
+    for (const a of mems) {
+      if (used.has(a.id)) continue;
+      const g = [a];
+      for (const b of mems) if (b !== a && !used.has(b.id) && g.length < 6 && close(a, b)) g.push(b);
+      if (g.length > 1 && !skip.has(twinKey(g))) { g.forEach((m) => used.add(m.id)); out.push(g); }
+    }
+    return out;
+  }
+
   function viewList(el) {
     el.innerHTML = `<div class="page"><h1>Memórias</h1><p class="lead">Tudo que está no cérebro, em lista. Clique numa linha para editar.</p>
       <div class="bar"><input class="input" id="q" placeholder="Procurar" aria-label="Procurar"><select class="input" id="cat" style="flex:0 1 200px" aria-label="Categoria"><option value="">Todas as categorias</option><option value="__p">Só sobre vocês</option><option value="__k">Só conhecimento</option>${CATS.map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join("")}</select>
       <select class="input" id="sort" style="flex:0 1 190px" aria-label="Ordem"><option value="new">Mais recentes</option><option value="old">Mais antigas</option><option value="imp">Mais importantes</option><option value="rec">Mais lembradas</option><option value="lvl">Nível (avançado primeiro)</option><option value="top">Assunto (A–Z)</option><option value="abc">Título (A–Z)</option></select>
-      <button class="btn primary" id="add">Nova memória</button><button class="btn danger hidden" id="bulk">Apagar selecionadas</button></div>
+      <button class="btn primary" id="add">Nova memória</button><button class="btn hidden" id="join">Juntar selecionadas</button><button class="btn danger hidden" id="bulk">Apagar selecionadas</button></div>
+      <div id="twins"></div>
       <div class="panel" style="padding:0;overflow:hidden"><table class="tstack"><thead><tr><th style="width:36px"><input type="checkbox" id="all" aria-label="Selecionar todas"></th><th>Memória</th><th>Categoria</th><th class="num">Nível ou importância</th><th class="num">Mudou</th></tr></thead><tbody id="rows"></tbody></table></div>
       <p class="faint" id="foot" style="font-size:13px"></p></div>`;
     const picked = new Set();
@@ -1437,6 +1501,9 @@
         || `<tr><td colspan="5" class="muted" style="padding:28px;text-align:center">${Store.mems.size ? "Nada com esse filtro." : "Nenhuma memória ainda."}</td></tr>`;
       $("#foot", el).textContent = list.length > shown.length ? `Mostrando ${shown.length} de ${list.length}. Use a busca para achar o resto.` : `${list.length} ${list.length === 1 ? "memória" : "memórias"}.`;
       $("#bulk", el).classList.toggle("hidden", picked.size === 0);
+      $("#join", el).classList.toggle("hidden", picked.size < 2);
+      $("#join", el).textContent = `Juntar ${picked.size} em uma`;
+      drawTwins();
       $("#bulk", el).textContent = `Apagar ${picked.size} ${picked.size === 1 ? "selecionada" : "selecionadas"}`;
     };
     ["input", "change"].forEach((ev) => { $("#q", el).addEventListener(ev, draw); $("#cat", el).addEventListener(ev, draw); $("#sort", el).addEventListener(ev, draw); });
@@ -1448,6 +1515,29 @@
     });
     $("#all", el).onchange = (e) => { picked.clear(); if (e.target.checked) $("#rows", el).querySelectorAll("[data-pick]").forEach((b) => picked.add(b.dataset.pick)); draw(); };
     $("#add", el).onclick = () => openMemory(null);
+    // Juntar: fica a mais completa, que herda as ligações, etiquetas e lembranças das outras.
+    const join = async (ids) => {
+      const mems = ids.map((id) => Store.mems.get(id)).filter(Boolean);
+      if (mems.length < 2) return;
+      const keep = mems.slice().sort((a, b) => b.content.length - a.content.length)[0];
+      try {
+        await rest("rpc/merge_my_memories", { method: "POST", body: { p_keep: keep.id, p_drop: mems.filter((m) => m !== keep).map((m) => m.id) } });
+        mems.forEach((m) => { if (m !== keep) { Store.dropMem(m.id); picked.delete(m.id); } });
+        await Store.sync();
+        toast(`Juntadas em “${keep.title.length > 50 ? keep.title.slice(0, 48) + "…" : keep.title}”.`);
+      } catch (err) { toast(err.message, true); }
+    };
+    $("#join", el).onclick = () => join([...picked]);
+    // Parecidas: memórias que dizem quase a mesma coisa, para juntar com um clique (ou dizer que não são iguais).
+    function drawTwins() {
+      const box = $("#twins", el), groups = twinGroups();
+      if (!groups.length) { box.innerHTML = ""; return; }
+      box.innerHTML = `<div class="panel twins"><div class="row" style="justify-content:space-between;align-items:baseline"><b>Parecidas</b><span class="faint" style="font-size:13px">${groups.length} ${groups.length === 1 ? "grupo diz" : "grupos dizem"} quase a mesma coisa</span></div>
+        ${groups.slice(0, 8).map((g, i) => `<div class="twin"><ul>${g.map((m) => `<li><span class="cat"><i style="background:${catOf(m.category).color}"></i></span>${esc(m.title)}</li>`).join("")}</ul>
+          <div class="row" style="gap:6px"><button class="btn small" data-join="${i}">Juntar</button><button class="btn small ghost" data-skip="${i}">Não são iguais</button></div></div>`).join("")}</div>`;
+      box.querySelectorAll("[data-join]").forEach((b) => (b.onclick = () => join(groups[+b.dataset.join].map((m) => m.id))));
+      box.querySelectorAll("[data-skip]").forEach((b) => (b.onclick = () => { prefs.notTwins = (prefs.notTwins || []).concat([twinKey(groups[+b.dataset.skip])]).slice(-300); savePrefs(); drawTwins(); }));
+    }
     $("#bulk", el).onclick = async () => {
       const ids = [...picked];
       if (!(await ask(`Apagar ${ids.length} ${ids.length === 1 ? "memória" : "memórias"}?`, "Elas e as ligações delas somem do cérebro.", "Apagar"))) return;
