@@ -68,8 +68,17 @@
     return when(iso);
   }
   const stars = (n) => "★".repeat(n) + "☆".repeat(5 - n);
-  const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREFS)) || {}; } catch { return {}; } })();
-  const savePrefs = () => { try { localStorage.setItem(PREFS, JSON.stringify(prefs)); } catch {} };
+  // Preferências separadas por conta: quem entra neste navegador nunca herda nada da conta de outra pessoa.
+  const prefs = {};
+  let prefsFor = null;
+  const prefsKey = (uid) => (uid ? PREFS + "." + uid : PREFS);
+  function loadPrefs(uid) {
+    for (const k of Object.keys(prefs)) delete prefs[k];
+    prefsFor = uid || null;
+    try { Object.assign(prefs, JSON.parse(localStorage.getItem(prefsKey(prefsFor))) || {}); } catch {}
+  }
+  const savePrefs = () => { try { localStorage.setItem(prefsKey(prefsFor), JSON.stringify(prefs)); } catch {} };
+  try { localStorage.removeItem(PREFS); } catch {}
 
   function toast(msg, bad) {
     const t = document.createElement("div");
@@ -95,6 +104,8 @@
     load() { try { this.s = JSON.parse(localStorage.getItem(SESSION)); } catch { this.s = null; } },
     save(s) { this.s = s; try { s ? localStorage.setItem(SESSION, JSON.stringify(s)) : localStorage.removeItem(SESSION); } catch {} },
     keep(j) {
+      // Outra conta entrando: nada da anterior fica na memória da página.
+      if (!this.s || !this.s.user || this.s.user.id !== j.user.id) { Store.reset(); loadPrefs(j.user.id); }
       this.save({
         access_token: j.access_token,
         refresh_token: j.refresh_token,
@@ -136,6 +147,7 @@
     signOut() {
       const t = this.s && this.s.access_token;
       this.save(null);
+      Store.reset(); loadPrefs(null);
       if (t) fetch(`${CFG.url}/auth/v1/logout`, { method: "POST", headers: { apikey: CFG.key, Authorization: `Bearer ${t}` } }).catch(() => {});
     },
     async setPassword(password) {
@@ -180,13 +192,15 @@
   // ---------------- dados ----------------
   const Store = {
     mems: new Map(), links: new Map(), loaded: false, loading: null, lastMem: "", lastLink: "", subs: new Set(), born: new Map(), sparks: new Set(),
-    reset() { this.mems.clear(); this.links.clear(); this.loaded = false; this.loading = null; this.lastMem = this.lastLink = ""; },
+    reset() { this.mems.clear(); this.links.clear(); this.born.clear(); this.sparks.clear(); this.loaded = false; this.loading = null; this.lastMem = this.lastLink = ""; this.gen = (this.gen || 0) + 1; },
     on(f) { this.subs.add(f); return () => this.subs.delete(f); },
     emit() { for (const f of this.subs) f(); },
     load() {
       if (this.loaded) return Promise.resolve();
       if (!this.loading) this.loading = (async () => {
+        const gen = this.gen;
         const [m, l] = await Promise.all([pageAll(`memories?select=${MCOLS}&order=created_at.asc`), pageAll(`memory_links?select=${LCOLS}&order=created_at.asc`)]);
+        if (gen !== this.gen) throw new Error("A conta mudou. Carregue de novo.");
         this.mems = new Map(m.map((x) => [x.id, x]));
         this.links = new Map(l.map((x) => [x.id, x]));
         this.lastMem = m.reduce((a, x) => (x.updated_at > a ? x.updated_at : a), "1970-01-01T00:00:00+00:00");
@@ -212,11 +226,12 @@
     // A cada poucos segundos: o que a Capri guardou desde a última olhada.
     async poll() {
       if (!this.loaded) return;
+      const gen = this.gen;
       const [m, l] = await Promise.all([
         rest(`memories?select=${MCOLS}&updated_at=gt.${encodeURIComponent(this.lastMem)}&order=updated_at.asc&limit=500`),
         rest(`memory_links?select=${LCOLS}&created_at=gt.${encodeURIComponent(this.lastLink)}&order=created_at.asc&limit=1000`),
       ]);
-      if (!m.length && !l.length) return;
+      if (gen !== this.gen || (!m.length && !l.length)) return;
       for (const x of m) this.putMem(x, true);
       for (const x of l) this.putLink(x);
       this.emit();
@@ -224,7 +239,9 @@
     // De vez em quando: o que foi apagado em outro lugar some daqui também.
     async sync() {
       if (!this.loaded) return;
+      const gen = this.gen;
       const [ids, l] = await Promise.all([pageAll("memories?select=id&order=id.asc"), pageAll(`memory_links?select=${LCOLS}&order=created_at.asc`)]);
+      if (gen !== this.gen) return;
       const keep = new Set(ids.map((x) => x.id));
       let changed = false;
       for (const id of [...this.mems.keys()]) if (!keep.has(id)) { this.dropMem(id); changed = true; }
@@ -1591,5 +1608,6 @@
   }
   window.addEventListener("hashchange", route);
   Auth.load();
+  loadPrefs(Auth.uid);
   if (Auth.s && Date.now() / 1000 > Auth.s.expires_at - 90) Auth.refresh().then(route); else route();
 })();

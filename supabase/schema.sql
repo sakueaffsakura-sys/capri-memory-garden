@@ -375,3 +375,11 @@ revoke execute on function public.handle_new_user(), public.memories_touch() fro
 --   brain_topics(p_user, p_limit): assuntos com a contagem por nível; brain_stats ganhou knowledge e topics
 --   memories_touch: o assunto entra na busca; grant execute em brain_words para authenticated (criar e editar pelo
 --     site falhava com "permission denied for function brain_words")
+
+-- 26/11 (noite): isolamento por usuário (migração "isolamento_por_usuario"). Cada conta tem o seu cérebro:
+--   anon sem acesso a tabela nenhuma; authenticated sem truncate/references/trigger; o que for criado no futuro já
+--   nasce sem permissão para anon/authenticated (default privileges);
+--   pelo site só dá para mudar: api_keys (name, revoked_at), memory_links (relation, strength), profiles (display_name);
+--   memory_links_guard: ligação só entre duas memórias do mesmo dono da ligação (vale para site, API e gatilhos);
+--   memories_owner_fixed: uma memória não muda de dono;
+--   brain_recall: os títulos ligados também filtrados pelo dono; organize_my_brain sem acesso para anon.

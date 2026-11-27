@@ -38,6 +38,14 @@ O visual muda com o tamanho: **Semente** (até 24 memórias), **Broto** (25+), *
 **Nebulosa** (1000+) e **Universo** (3000+). Quanto maior, mais estrelas no fundo, mais nuvens coloridas atrás de cada
 categoria e mais faíscas correndo pelas ligações; quando ela lembra de algo, a bolinha acende e solta faíscas.
 
+## Cada um com o seu cérebro
+
+Cada conta tem um cérebro só dela. No banco, toda tabela tem segurança por linha (RLS): cada pessoa só lê, cria, muda e
+apaga o que é dela; quem não entrou na conta não vê nada; uma ligação só existe entre memórias do mesmo dono e uma
+memória não muda de dono. A API da Capri descobre o dono pela chave e só mexe no cérebro dele. No site, as preferências
+e o que foi carregado são separados por conta (trocar de conta no mesmo navegador não mostra nada da anterior). Na
+Capri, a fila do que ainda vai subir é separada por chave, e trocar de chave esquece na hora o que veio da conta antiga.
+
 ## Como é feito
 
 - `index.html` e `app.js`: o site inteiro, sem dependências nem build. Fala direto com o Supabase (login, tabelas)
